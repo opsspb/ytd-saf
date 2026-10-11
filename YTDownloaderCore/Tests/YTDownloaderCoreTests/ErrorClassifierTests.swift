@@ -100,4 +100,23 @@ final class ErrorClassifierTests: XCTestCase {
             XCTFail("Expected unknown error")
         }
     }
+
+    func testShortDisplayLineHidesFfmpegDump() {
+        let stored = DownloadError.mergeFailed(
+            "ffmpeg version 9.0.2-https://www.martin-riedl.de\nInput #0, mpegts ... video.mp4\nCan't write packet with unknown timestamp"
+        ).errorDescription
+        XCTAssertEqual(DownloadError.shortDisplayLine(from: stored), "Failed to merge video and audio")
+        XCTAssertTrue(DownloadError.hasTechnicalDetails(stored))
+    }
+
+    func testShortDisplayLinePeelsUnknownYtDlpError() {
+        let stored = DownloadError.unknown("ERROR: [youtube] clickIsoVid: This video is unavailable").errorDescription
+        XCTAssertEqual(DownloadError.shortDisplayLine(from: stored), "[youtube] clickIsoVid: This video is unavailable")
+    }
+
+    func testShortMessageDoesNotIncludeLog() {
+        XCTAssertEqual(DownloadError.mergeFailed("huge log").shortMessage, "Failed to merge video and audio")
+        XCTAssertEqual(DownloadError.downloadFailed("huge log").shortMessage, "Download failed")
+        XCTAssertEqual(DownloadError.unknown("oops").shortMessage, "Download failed")
+    }
 }

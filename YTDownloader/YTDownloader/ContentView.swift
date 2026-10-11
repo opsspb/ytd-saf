@@ -141,26 +141,40 @@ struct DownloadQueueView: View {
     @EnvironmentObject var downloadManager: DownloadManager
     
     var body: some View {
-        List(selection: $downloadManager.selectedItemID) {
-            ForEach(downloadManager.queue) { item in
-                DownloadItemRow(item: item)
-                    .tag(item.id)
+        VStack(spacing: 0) {
+            if downloadManager.hasFinishedItems {
+                HStack {
+                    Spacer()
+                    Button("Clear finished/failed") {
+                        downloadManager.clearFinished()
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                }
             }
-        }
-        .listStyle(.sidebar)
-        .overlay {
-            if downloadManager.queue.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "tray")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-                    Text("No downloads")
-                        .foregroundColor(.secondary)
-                    Text("Click the YD button on any YouTube video to start downloading")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+            List(selection: $downloadManager.selectedItemID) {
+                ForEach(downloadManager.queue) { item in
+                    DownloadItemRow(item: item)
+                        .tag(item.id)
+                }
+            }
+            .listStyle(.sidebar)
+            .overlay {
+                if downloadManager.queue.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary)
+                        Text("No downloads")
+                            .foregroundColor(.secondary)
+                        Text("Click the YD button on any YouTube video to start downloading")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
                 }
             }
         }
@@ -179,6 +193,7 @@ struct DownloadItemRow: View {
                 Text(statusText)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
             
             Spacer()
@@ -200,7 +215,7 @@ struct DownloadItemRow: View {
             return "Completed"
         case .failed:
             if let error = item.error, !error.isEmpty {
-                return "Failed: \(error)"
+                return "Failed: \(DownloadError.shortDisplayLine(from: error))"
             }
             return "Failed"
         }
@@ -246,10 +261,17 @@ struct DownloadDetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Error")
                         .font(.headline)
-                    Text(error)
-                        .font(.caption)
+                    Text(DownloadError.shortDisplayLine(from: error))
                         .foregroundColor(.red)
-                        .textSelection(.enabled)
+                    if DownloadError.hasTechnicalDetails(error) {
+                        DisclosureGroup("Technical details") {
+                            Text(error)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
                 }
             }
             

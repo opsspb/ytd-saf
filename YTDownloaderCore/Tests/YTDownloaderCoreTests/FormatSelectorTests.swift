@@ -76,6 +76,124 @@ final class FormatSelectorTests: XCTestCase {
         XCTAssertEqual(selected.video.vbr, 5500)
     }
     
+    func testPrefersDASHOverHigherBitrateHLSAtSameResolution() throws {
+        let formats = [
+            VideoFormat(
+                formatId: "230",
+                ext: "mp4",
+                resolution: "320x240",
+                width: 320,
+                height: 240,
+                fps: 30,
+                vcodec: "avc1.4D400D",
+                acodec: "none",
+                vbr: 214.775,
+                tbr: 214.775,
+                protocolName: "m3u8_native"
+            ),
+            VideoFormat(
+                formatId: "133",
+                ext: "mp4",
+                resolution: "320x240",
+                width: 320,
+                height: 240,
+                fps: 30,
+                vcodec: "avc1.4D400D",
+                acodec: "none",
+                vbr: 57.522,
+                tbr: 57.522,
+                formatNote: "240p",
+                protocolName: "https"
+            ),
+            VideoFormat(
+                formatId: "134",
+                ext: "mp4",
+                resolution: "320x240",
+                width: 320,
+                height: 240,
+                fps: 30,
+                vcodec: "avc1.4D400D",
+                acodec: "none",
+                vbr: 53.218,
+                tbr: 53.218,
+                formatNote: "240p",
+                protocolName: "https"
+            ),
+            VideoFormat(
+                formatId: "140",
+                ext: "m4a",
+                vcodec: "none",
+                acodec: "mp4a.40.2",
+                abr: 130,
+                tbr: 129.63,
+                protocolName: "https"
+            ),
+            VideoFormat(
+                formatId: "234",
+                ext: "mp4",
+                vcodec: "none",
+                protocolName: "m3u8_native"
+            )
+        ]
+
+        let selected = try selector.selectBestFormats(from: YTDLPInfo(id: "E8e_Y4yLdd0", title: "I AM WAR, HELP ME KILL.", formats: formats))
+        XCTAssertEqual(selected.video.formatId, "133")
+        XCTAssertEqual(selected.video.protocolName, "https")
+        XCTAssertEqual(selected.audio.formatId, "140")
+    }
+
+    func testHigherResolutionHLSBeatsLowerDASH() throws {
+        let formats = [
+            VideoFormat(formatId: "hls1080", ext: "mp4", width: 1920, height: 1080, fps: 30, vcodec: "avc1", acodec: "none", vbr: 4000, protocolName: "m3u8_native"),
+            VideoFormat(formatId: "dash720", ext: "mp4", width: 1280, height: 720, fps: 30, vcodec: "avc1", acodec: "none", vbr: 2500, protocolName: "https"),
+            VideoFormat(formatId: "140", ext: "m4a", vcodec: "none", acodec: "mp4a", abr: 128, protocolName: "https")
+        ]
+        let selected = try selector.selectBestFormats(from: YTDLPInfo(id: "x", title: "t", formats: formats))
+        XCTAssertEqual(selected.video.formatId, "hls1080")
+    }
+
+    func testIgnoresVideoFormatsWithoutHeight() throws {
+        let formats = [
+            VideoFormat(formatId: "mystery", ext: "mp4", vcodec: "avc1", acodec: "none", vbr: 9000, protocolName: "m3u8_native"),
+            VideoFormat(formatId: "133", ext: "mp4", resolution: "320x240", width: 320, height: 240, fps: 30, vcodec: "avc1", acodec: "none", vbr: 58, protocolName: "https"),
+            VideoFormat(formatId: "140", ext: "m4a", vcodec: "none", acodec: "mp4a", abr: 128, protocolName: "https")
+        ]
+        let selected = try selector.selectBestFormats(from: YTDLPInfo(id: "x", title: "t", formats: formats))
+        XCTAssertEqual(selected.video.formatId, "133")
+    }
+
+    func testResolvesHeightFromResolutionWhenHeightMissing() throws {
+        let formats = [
+            VideoFormat(formatId: "dash", ext: "mp4", resolution: "1280x720", vcodec: "avc1", acodec: "none", vbr: 2000, protocolName: "https"),
+            VideoFormat(formatId: "low", ext: "mp4", width: 640, height: 360, fps: 30, vcodec: "avc1", acodec: "none", vbr: 800, protocolName: "https"),
+            VideoFormat(formatId: "140", ext: "m4a", vcodec: "none", acodec: "mp4a", abr: 128, protocolName: "https")
+        ]
+        let selected = try selector.selectBestFormats(from: YTDLPInfo(id: "x", title: "t", formats: formats))
+        XCTAssertEqual(selected.video.formatId, "dash")
+    }
+
+    func testLiveE8eFixturePrefersDASH133OverHLS230() throws {
+        let jsonData = try loadFixture(named: "video_info_hls_vs_dash.json")
+        let info = try JSONDecoder().decode(YTDLPInfo.self, from: jsonData)
+        let selected = try selector.selectBestFormats(from: info)
+        XCTAssertEqual(info.id, "E8e_Y4yLdd0")
+        XCTAssertEqual(selected.video.formatId, "133")
+        XCTAssertEqual(selected.video.protocolName, "https")
+        XCTAssertEqual(selected.video.height, 240)
+        XCTAssertNotEqual(selected.video.formatId, "230")
+        XCTAssertEqual(selected.audio.formatId, "140")
+        XCTAssertEqual(selected.audio.protocolName, "https")
+    }
+
+    func testDecodesProtocolFromJSON() throws {
+        let json = Data("""
+        {"format_id":"230","ext":"mp4","protocol":"m3u8_native","vcodec":"avc1","acodec":"none","height":240,"width":320}
+        """.utf8)
+        let format = try JSONDecoder().decode(VideoFormat.self, from: json)
+        XCTAssertEqual(format.protocolName, "m3u8_native")
+        XCTAssertEqual(format.height, 240)
+    }
+
     func testSelectHighestAudioBitrateForOriginalLanguage() throws {
         let videoFormats = [
             VideoFormat(formatId: "v1", ext: "webm", width: 1920, height: 1080, fps: 30, vcodec: "vp9", acodec: "none", vbr: 3000)

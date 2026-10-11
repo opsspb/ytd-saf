@@ -224,52 +224,45 @@ class DownloadManager: ObservableObject {
 
         try await Task.detached(priority: .userInitiated) { () async throws in
             try FileManager.default.createDirectory(atPath: downloadDir, withIntermediateDirectories: true)
-            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-\(videoId)-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: tempDir) }
-
-            let videoFile = tempDir.appendingPathComponent("video.\(formats.video.ext)").path
-            let audioFile = tempDir.appendingPathComponent("audio.\(formats.audio.ext)").path
-
-            try pipeline.downloadFormat(
-                url: url,
-                formatId: formats.video.formatId,
-                outputPath: videoFile,
-                useCookies: useCookies,
-                fallbackFormat: "bestvideo*",
-                onProgress: { progress in
-                    Task { @MainActor in
-                        DownloadProgressBridge.shared.update(id: itemID, fraction: progress * 0.7)
-                    }
-                }
-            )
-
-            try pipeline.downloadFormat(
-                url: url,
-                formatId: formats.audio.formatId,
-                outputPath: audioFile,
-                useCookies: useCookies,
-                fallbackFormat: "bestaudio",
-                onProgress: { progress in
-                    Task { @MainActor in
-                        DownloadProgressBridge.shared.update(id: itemID, fraction: 0.7 + progress * 0.2)
-                    }
-                }
-            )
-
-            await MainActor.run {
-                DownloadProgressBridge.shared.merging(id: itemID)
-            }
-
             let outputFile = (downloadDir as NSString).appendingPathComponent(
                 OutputFilename.make(title: info.title, videoId: videoId)
             )
-            try pipeline.merge(videoPath: videoFile, audioPath: audioFile, outputPath: outputFile)
+            try pipeline.downloadMerged(
+                url: url,
+                videoFormatId: formats.video.formatId,
+                audioFormatId: formats.audio.formatId,
+                outputPath: outputFile,
+                useCookies: useCookies,
+                onProgress: { progress in
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.update(id: itemID, fraction: progress)
+                    }
+                },
+                onMerging: {
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.merging(id: itemID)
+                    }
+                }
+            )
 
             await MainActor.run {
                 DownloadProgressBridge.shared.completed(id: itemID, path: outputFile)
             }
         }.value
+    }
+
+    func clearFinished() {
+        let removedIDs = Set(queue.filter { $0.status == .completed || $0.status == .failed }.map(\.id))
+        guard !removedIDs.isEmpty else { return }
+        queue.removeAll { removedIDs.contains($0.id) }
+        if let selectedItemID, removedIDs.contains(selectedItemID) {
+            self.selectedItemID = nil
+        }
+        saveQueue()
+    }
+
+    var hasFinishedItems: Bool {
+        queue.contains { $0.status == .completed || $0.status == .failed }
     }
 
     func attachProgressBridge() {

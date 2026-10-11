@@ -17,6 +17,7 @@ public struct VideoFormat: Codable, Equatable, Sendable {
     public let formatNote: String?
     public let language: String?
     public let languagePreference: Int?
+    public let protocolName: String?
     
     enum CodingKeys: String, CodingKey {
         case formatId = "format_id"
@@ -35,9 +36,10 @@ public struct VideoFormat: Codable, Equatable, Sendable {
         case formatNote = "format_note"
         case language
         case languagePreference = "language_preference"
+        case protocolName = "protocol"
     }
     
-    public init(formatId: String, ext: String, resolution: String? = nil, width: Int? = nil, height: Int? = nil, fps: Double? = nil, vcodec: String? = nil, acodec: String? = nil, vbr: Double? = nil, abr: Double? = nil, tbr: Double? = nil, filesize: Int? = nil, filesizeApprox: Int? = nil, formatNote: String? = nil, language: String? = nil, languagePreference: Int? = nil) {
+    public init(formatId: String, ext: String, resolution: String? = nil, width: Int? = nil, height: Int? = nil, fps: Double? = nil, vcodec: String? = nil, acodec: String? = nil, vbr: Double? = nil, abr: Double? = nil, tbr: Double? = nil, filesize: Int? = nil, filesizeApprox: Int? = nil, formatNote: String? = nil, language: String? = nil, languagePreference: Int? = nil, protocolName: String? = nil) {
         self.formatId = formatId
         self.ext = ext
         self.resolution = resolution
@@ -54,6 +56,7 @@ public struct VideoFormat: Codable, Equatable, Sendable {
         self.formatNote = formatNote
         self.language = language
         self.languagePreference = languagePreference
+        self.protocolName = protocolName
     }
     
     public var isVideoOnly: Bool {
@@ -163,7 +166,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     case bootstrapFailed(String)
     case unknown(String)
     
-    public var errorDescription: String? {
+    public var shortMessage: String {
         switch self {
         case .ytdlpNotFound:
             return "yt-dlp not found"
@@ -171,14 +174,14 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "ffmpeg not found"
         case .invalidURL:
             return "Invalid URL"
-        case .fetchInfoFailed(let msg):
-            return "Failed to fetch video info: \(msg)"
+        case .fetchInfoFailed:
+            return "Failed to fetch video info"
         case .noSuitableFormats:
             return "No suitable video formats found"
-        case .downloadFailed(let msg):
-            return "Download failed: \(msg)"
-        case .mergeFailed(let msg):
-            return "Failed to merge video and audio: \(msg)"
+        case .downloadFailed:
+            return "Download failed"
+        case .mergeFailed:
+            return "Failed to merge video and audio"
         case .cookiesRequired:
             return "Cookies required (sign-in needed)"
         case .ageRestricted:
@@ -191,6 +194,27 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Access forbidden (403)"
         case .tooManyRequests:
             return "Too many requests (429)"
+        case .networkError:
+            return "Network error"
+        case .bootstrapFailed:
+            return "Could not install yt-dlp/ffmpeg"
+        case .unknown:
+            return "Download failed"
+        }
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .ytdlpNotFound, .ffmpegNotFound, .invalidURL, .noSuitableFormats,
+             .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired,
+             .forbidden, .tooManyRequests:
+            return shortMessage
+        case .fetchInfoFailed(let msg):
+            return "Failed to fetch video info: \(msg)"
+        case .downloadFailed(let msg):
+            return "Download failed: \(msg)"
+        case .mergeFailed(let msg):
+            return "Failed to merge video and audio: \(msg)"
         case .networkError(let msg):
             return "Network error: \(msg)"
         case .bootstrapFailed(let msg):
@@ -198,6 +222,80 @@ public enum DownloadError: Error, LocalizedError, Equatable {
         case .unknown(let msg):
             return "Unknown error: \(msg)"
         }
+    }
+
+    /// First-line summary for the queue list; full `errorDescription` stays in the detail disclosure.
+    public static func shortDisplayLine(from stored: String?) -> String {
+        guard let stored, !stored.isEmpty else { return "Failed" }
+        let firstLine = stored.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+            .first
+            .map { String($0).trimmingCharacters(in: .whitespaces) } ?? stored
+
+        let known = [
+            "Failed to merge video and audio",
+            "Failed to fetch video info",
+            "No suitable video formats found",
+            "yt-dlp not found",
+            "ffmpeg not found",
+            "Invalid URL",
+            "Cookies required (sign-in needed)",
+            "Age-restricted video (cookies required)",
+            "Members-only video (cookies required)",
+            "CAPTCHA required (cookies needed)",
+            "Access forbidden (403)",
+            "Too many requests (429)",
+            "Network error",
+            "Could not install yt-dlp/ffmpeg",
+            "Download failed",
+        ]
+        for prefix in known where firstLine.hasPrefix(prefix) || stored.hasPrefix(prefix) {
+            return prefix
+        }
+
+        if stored.hasPrefix("Unknown error") {
+            if let inner = lastErrorLine(in: stored) {
+                return truncate(stripErrorPrefix(inner), 120)
+            }
+            if let colon = stored.range(of: ": ") {
+                return truncate(stripErrorPrefix(String(stored[colon.upperBound...])), 120)
+            }
+            return "Download failed"
+        }
+
+        if let inner = lastErrorLine(in: stored), firstLine.count > 80 {
+            return truncate(stripErrorPrefix(inner), 120)
+        }
+        return truncate(firstLine, 120)
+    }
+
+    public static func hasTechnicalDetails(_ stored: String?) -> Bool {
+        guard let stored, !stored.isEmpty else { return false }
+        return stored != shortDisplayLine(from: stored)
+    }
+
+    private static func lastErrorLine(in stored: String) -> String? {
+        let lines = stored.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+        for line in lines.reversed() {
+            if let range = line.range(of: "ERROR:", options: [.caseInsensitive, .backwards]) {
+                return String(line[range.lowerBound...])
+            }
+        }
+        return nil
+    }
+
+    private static func stripErrorPrefix(_ line: String) -> String {
+        var text = line
+        if let range = text.range(of: "ERROR:", options: .caseInsensitive),
+           range.lowerBound == text.startIndex {
+            text = String(text[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        return text
+    }
+
+    private static func truncate(_ text: String, _ limit: Int) -> String {
+        if text.count <= limit { return text }
+        return String(text.prefix(limit - 1)) + "…"
     }
     
     public var requiresCookies: Bool {

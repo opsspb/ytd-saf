@@ -117,6 +117,7 @@ public struct VideoDownloadPipeline: Sendable {
 
     public func merge(videoPath: String, audioPath: String, outputPath: String) throws {
         let result = try run(ffmpegPath, arguments: [
+            "-fflags", "+genpts",
             "-i", videoPath,
             "-i", audioPath,
             "-c", "copy",
@@ -128,40 +129,113 @@ public struct VideoDownloadPipeline: Sendable {
         }
     }
 
+    /// Lets yt-dlp download the chosen video+audio formats and remux them to MKV.
+    public func downloadMerged(
+        url: String,
+        videoFormatId: String,
+        audioFormatId: String,
+        outputPath: String,
+        useCookies: Bool,
+        fallbackSpec: String? = "bestvideo*+bestaudio/best",
+        onProgress: (@Sendable (Double) -> Void)? = nil,
+        onMerging: (@Sendable () -> Void)? = nil
+    ) throws {
+        var lastError: Error = DownloadError.downloadFailed("No format available")
+        var specs = ["\(videoFormatId)+\(audioFormatId)"]
+        if let fallbackSpec, fallbackSpec != specs[0] {
+            specs.append(fallbackSpec)
+        }
+        for spec in specs {
+            do {
+                try downloadMergedOnce(
+                    url: url,
+                    formatSpec: spec,
+                    outputPath: outputPath,
+                    useCookies: useCookies,
+                    onProgress: onProgress,
+                    onMerging: onMerging
+                )
+                return
+            } catch {
+                lastError = error
+                let text = (error as? LocalizedError)?.errorDescription?.lowercased() ?? "\(error)".lowercased()
+                if text.contains("format is not available") || text.contains("requested format") {
+                    continue
+                }
+                throw error
+            }
+        }
+        throw lastError
+    }
+
+    private func downloadMergedOnce(
+        url: String,
+        formatSpec: String,
+        outputPath: String,
+        useCookies: Bool,
+        onProgress: (@Sendable (Double) -> Void)?,
+        onMerging: (@Sendable () -> Void)?
+    ) throws {
+        var args = [
+            "-f", formatSpec,
+            "--merge-output-format", "mkv",
+            "--ffmpeg-location", ffmpegPath,
+            "-o", outputPath,
+            "--no-warnings",
+            "--no-part",
+            "--force-overwrites",
+            "--newline",
+            "--progress",
+            "--progress-delta", "0.2",
+            "--progress-template", "download:%(progress._percent_str)s",
+            url
+        ]
+        args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        let result = try run(ytdlpPath, arguments: args, onOutput: { line in
+            if line.contains("[Merger]") || line.contains("[Fixup]") {
+                onMerging?()
+            }
+            if let progress = YTDLPProgress.parse(line) {
+                onProgress?(progress)
+            }
+        })
+        if result.status != 0 {
+            let output = combinedOutput(result)
+            let lower = output.lowercased()
+            if lower.contains("merger") || lower.contains("ffmpeg") || lower.contains("merge") {
+                throw DownloadError.mergeFailed(output)
+            }
+            throw ErrorClassifier().classifyError(from: output)
+        }
+        guard FileManager.default.fileExists(atPath: outputPath) else {
+            throw DownloadError.downloadFailed("yt-dlp finished without writing \(outputPath)")
+        }
+    }
+
     public func downloadBest(url: String, outputDirectory: String, useCookies: Bool = false) throws -> DownloadPipelineResult {
         try FileManager.default.createDirectory(atPath: outputDirectory, withIntermediateDirectories: true)
         let formatList = try listFormats(url: url)
         let info = try fetchInfo(url: url, useCookies: useCookies)
         let formats = try FormatSelector().selectBestFormats(from: info)
 
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-dl-\(info.id)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let videoFile = tempDir.appendingPathComponent("video.\(formats.video.ext)").path
-        let audioFile = tempDir.appendingPathComponent("audio.\(formats.audio.ext)").path
-
-        try downloadFormat(
-            url: url,
-            formatId: formats.video.formatId,
-            outputPath: videoFile,
-            useCookies: useCookies,
-            fallbackFormat: "bestvideo*"
-        )
-        try downloadFormat(
-            url: url,
-            formatId: formats.audio.formatId,
-            outputPath: audioFile,
-            useCookies: useCookies,
-            fallbackFormat: "bestaudio"
-        )
-
         let outputFile = (outputDirectory as NSString).appendingPathComponent(
             OutputFilename.make(title: info.title, videoId: info.id)
         )
-        try merge(videoPath: videoFile, audioPath: audioFile, outputPath: outputFile)
+        try downloadMerged(
+            url: url,
+            videoFormatId: formats.video.formatId,
+            audioFormatId: formats.audio.formatId,
+            outputPath: outputFile,
+            useCookies: useCookies
+        )
 
         return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)
+    }
+
+    private func combinedOutput(_ result: ProcessResult) -> String {
+        if result.stderr.isEmpty { return result.stdout }
+        if result.stdout.isEmpty { return result.stderr }
+        return result.stdout + "\n" + result.stderr
     }
 
     private func cookieArguments(useCookies: Bool) -> [String] {
