@@ -233,6 +233,7 @@ class DownloadManager: ObservableObject {
                 audioFormatId: formats.audio.formatId,
                 outputPath: outputFile,
                 useCookies: useCookies,
+                videoProtocol: formats.video.protocolName,
                 onProgress: { progress in
                     Task { @MainActor in
                         DownloadProgressBridge.shared.update(id: itemID, fraction: progress)

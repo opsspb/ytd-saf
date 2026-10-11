@@ -130,16 +130,31 @@ public struct VideoDownloadPipeline: Sendable {
     }
 
     /// Lets yt-dlp download the chosen video+audio formats and remux them to MKV.
+    /// HLS/mpegts streams are remuxed to MP4 first so ffmpeg 9 can mux timestamps.
     public func downloadMerged(
         url: String,
         videoFormatId: String,
         audioFormatId: String,
         outputPath: String,
         useCookies: Bool,
+        videoProtocol: String? = nil,
         fallbackSpec: String? = "bestvideo*+bestaudio/best",
         onProgress: (@Sendable (Double) -> Void)? = nil,
         onMerging: (@Sendable () -> Void)? = nil
     ) throws {
+        if isHLSProtocol(videoProtocol) {
+            try downloadSeparatelyAndMerge(
+                url: url,
+                videoFormatId: videoFormatId,
+                audioFormatId: audioFormatId,
+                outputPath: outputPath,
+                useCookies: useCookies,
+                onProgress: onProgress,
+                onMerging: onMerging
+            )
+            return
+        }
+
         var lastError: Error = DownloadError.downloadFailed("No format available")
         var specs = ["\(videoFormatId)+\(audioFormatId)"]
         if let fallbackSpec, fallbackSpec != specs[0] {
@@ -161,6 +176,19 @@ public struct VideoDownloadPipeline: Sendable {
                 let text = (error as? LocalizedError)?.errorDescription?.lowercased() ?? "\(error)".lowercased()
                 if text.contains("format is not available") || text.contains("requested format") {
                     continue
+                }
+                if isMergeFailure(text) {
+                    removeMergeSidecars(outputPath: outputPath)
+                    try downloadSeparatelyAndMerge(
+                        url: url,
+                        videoFormatId: videoFormatId,
+                        audioFormatId: audioFormatId,
+                        outputPath: outputPath,
+                        useCookies: useCookies,
+                        onProgress: onProgress,
+                        onMerging: onMerging
+                    )
+                    return
                 }
                 throw error
             }
@@ -212,6 +240,92 @@ public struct VideoDownloadPipeline: Sendable {
         }
     }
 
+    private func downloadSeparatelyAndMerge(
+        url: String,
+        videoFormatId: String,
+        audioFormatId: String,
+        outputPath: String,
+        useCookies: Bool,
+        onProgress: (@Sendable (Double) -> Void)?,
+        onMerging: (@Sendable () -> Void)?
+    ) throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-hls-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let videoFile = tempDir.appendingPathComponent("video.mp4").path
+        let audioFile = tempDir.appendingPathComponent("audio.m4a").path
+        try downloadFormat(
+            url: url,
+            formatId: videoFormatId,
+            outputPath: videoFile,
+            useCookies: useCookies,
+            onProgress: { onProgress?($0 * 0.7) }
+        )
+        try downloadFormat(
+            url: url,
+            formatId: audioFormatId,
+            outputPath: audioFile,
+            useCookies: useCookies,
+            onProgress: { onProgress?(0.7 + $0 * 0.2) }
+        )
+        onMerging?()
+        let remuxed = try remuxCopyToMP4IfNeeded(videoFile)
+        try merge(videoPath: remuxed, audioPath: audioFile, outputPath: outputPath)
+        guard FileManager.default.fileExists(atPath: outputPath) else {
+            throw DownloadError.mergeFailed("Remux/merge finished without writing \(outputPath)")
+        }
+    }
+
+    func remuxCopyToMP4IfNeeded(_ inputPath: String) throws -> String {
+        guard isMpegTS(inputPath) else { return inputPath }
+        let dest = inputPath + ".remux.mp4"
+        let result = try run(ffmpegPath, arguments: [
+            "-y",
+            "-i", inputPath,
+            "-c", "copy",
+            "-f", "mp4",
+            dest
+        ])
+        guard FileManager.default.fileExists(atPath: dest) else {
+            throw DownloadError.mergeFailed(result.stderr.isEmpty ? result.stdout : result.stderr)
+        }
+        return dest
+    }
+
+    func isMpegTS(_ path: String) -> Bool {
+        let probe = (try? run(ffmpegPath, arguments: ["-hide_banner", "-i", path]))
+        let text = ((probe?.stderr ?? "") + "\n" + (probe?.stdout ?? "")).lowercased()
+        return text.contains("mpegts")
+    }
+
+    func isHLSProtocol(_ protocolName: String?) -> Bool {
+        let proto = (protocolName ?? "").lowercased()
+        return proto.contains("m3u8") || proto.contains("hls")
+    }
+
+    private func isMergeFailure(_ text: String) -> Bool {
+        text.contains("conversion failed")
+            || text.contains("failed to merge")
+            || text.contains("unknown timestamp")
+            || text.contains("postprocessing")
+    }
+
+    private func removeMergeSidecars(outputPath: String) {
+        let url = URL(fileURLWithPath: outputPath)
+        let directory = url.deletingLastPathComponent()
+        let stem = url.deletingPathExtension().lastPathComponent
+        guard let items = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for item in items {
+            let name = item.lastPathComponent
+            if name.hasPrefix(stem + ".f") || name.hasPrefix(stem + ".temp") {
+                try? FileManager.default.removeItem(at: item)
+            }
+        }
+    }
+
     public func downloadBest(url: String, outputDirectory: String, useCookies: Bool = false) throws -> DownloadPipelineResult {
         try FileManager.default.createDirectory(atPath: outputDirectory, withIntermediateDirectories: true)
         let formatList = try listFormats(url: url)
@@ -226,7 +340,8 @@ public struct VideoDownloadPipeline: Sendable {
             videoFormatId: formats.video.formatId,
             audioFormatId: formats.audio.formatId,
             outputPath: outputFile,
-            useCookies: useCookies
+            useCookies: useCookies,
+            videoProtocol: formats.video.protocolName
         )
 
         return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)

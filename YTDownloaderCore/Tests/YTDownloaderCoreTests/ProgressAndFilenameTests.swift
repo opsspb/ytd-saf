@@ -32,6 +32,14 @@ final class ProgressAndFilenameTests: XCTestCase {
         XCTAssertTrue(result.timedOut)
     }
 
+    func testDetectsHLSProtocolForRemuxPath() {
+        let pipeline = VideoDownloadPipeline(ytdlpPath: "/bin/echo", ffmpegPath: "/bin/echo")
+        XCTAssertTrue(pipeline.isHLSProtocol("m3u8_native"))
+        XCTAssertTrue(pipeline.isHLSProtocol("hls"))
+        XCTAssertFalse(pipeline.isHLSProtocol("https"))
+        XCTAssertFalse(pipeline.isHLSProtocol(nil))
+    }
+
     func testSkipsStoryboardFormats() throws {
         let formats = [
             VideoFormat(formatId: "sb0", ext: "mhtml", width: 1920, height: 1080, fps: 1, vcodec: "jpg", acodec: "none", formatNote: "storyboard"),
