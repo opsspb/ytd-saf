@@ -75,6 +75,19 @@ final class SiteAdapterTests: XCTestCase {
         XCTAssertEqual(YTDLPOutputParser.parseChosenFormatLine(from: log), "dash_sep-6+dash_sep-11")
     }
 
+    func testDownloadTimeoutOutlastsLongVKTransfers() {
+        XCTAssertEqual(VideoDownloadPipeline.ytdlpTimeout(for: ["-F", "--no-warnings", "https://vkvideo.ru/video-1_2"]), 90)
+        XCTAssertEqual(VideoDownloadPipeline.ytdlpTimeout(for: ["-J", "--no-warnings", "https://vkvideo.ru/video-1_2"]), 90)
+        let downloadArgs = [
+            "-f", "bv*+ba/b",
+            "-S", "res,fps,vbr,abr,proto:https",
+            "--external-downloader", "/tmp/aria2c",
+            "https://vkvideo.ru/video-56169357_456267107"
+        ]
+        XCTAssertEqual(VideoDownloadPipeline.ytdlpTimeout(for: downloadArgs), 12 * 60 * 60)
+        XCTAssertGreaterThan(VideoDownloadPipeline.ytdlpTimeout(for: downloadArgs), 600)
+    }
+
     func testParseSingleFormatAndFallbackLine() {
         let pair = YTDLPOutputParser.splitFormatPair("url1080")
         XCTAssertEqual(pair.video, "url1080")

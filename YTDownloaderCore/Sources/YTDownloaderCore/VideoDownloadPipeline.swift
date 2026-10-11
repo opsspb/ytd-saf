@@ -667,7 +667,7 @@ public struct VideoDownloadPipeline: Sendable {
         arguments: [String],
         onOutput: (@Sendable (String) -> Void)? = nil
     ) throws -> ProcessResult {
-        let timeout: TimeInterval = arguments.contains("-J") || arguments.contains("-F") ? 90 : 600
+        let timeout = Self.ytdlpTimeout(for: arguments)
         let result = try ProcessRunner.run(
             executable: executable,
             arguments: arguments,
@@ -678,5 +678,14 @@ public struct VideoDownloadPipeline: Sendable {
             throw DownloadError.unknown("Timed out running \(executable)")
         }
         return ProcessResult(stdout: result.stdout, stderr: result.stderr, status: result.status)
+    }
+
+    /// Metadata probes stay short. Media download/merge must outlast a 4K VK file
+    /// (this URL is ~5.4 GiB; 600s killed aria2c mid-transfer).
+    static func ytdlpTimeout(for arguments: [String]) -> TimeInterval {
+        if arguments.contains("-J") || arguments.contains("-F") {
+            return 90
+        }
+        return 12 * 60 * 60
     }
 }
