@@ -204,27 +204,13 @@ struct DownloadItemRow: View {
     }
     
     private var statusText: String {
-        switch item.status {
-        case .queued:
-            return "Queued"
-        case .downloading:
-            return String(format: "Downloading %.0f%%", item.progress * 100)
-        case .merging:
-            return "Merging..."
-        case .completed:
-            return "Completed"
-        case .failed:
-            if let error = item.error, !error.isEmpty {
-                return "Failed: \(DownloadError.shortDisplayLine(from: error))"
-            }
-            return "Failed"
-        }
+        item.listStatusText
     }
     
     @ViewBuilder
     private var statusIcon: some View {
         switch item.status {
-        case .queued:
+        case .queued, .retrying:
             Image(systemName: "clock")
                 .foregroundColor(.secondary)
         case .downloading, .merging:
@@ -248,7 +234,7 @@ struct DownloadDetailView: View {
             Text(item.title ?? item.videoId)
                 .font(.title2)
             
-            LabeledContent("Status", value: item.status.rawValue.capitalized)
+            LabeledContent("Status", value: item.listStatusText)
             LabeledContent("Video ID", value: item.videoId)
             LabeledContent("URL", value: item.url)
             
@@ -256,22 +242,35 @@ struct DownloadDetailView: View {
                 ProgressView(value: item.progress, total: 1.0)
                     .frame(maxWidth: 300)
             }
+
+            if item.status == .retrying, let retryNote = item.retryNote, !retryNote.isEmpty {
+                Text(retryNote)
+                    .foregroundColor(.secondary)
+            }
             
-            if let error = item.error, !error.isEmpty {
+            if item.showsFailureUI, let error = item.error {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Error")
                         .font(.headline)
                     Text(DownloadError.shortDisplayLine(from: error))
                         .foregroundColor(.red)
-                    if DownloadError.hasTechnicalDetails(error) {
+                    if DownloadError.hasTechnicalDetails(error) || !(item.log ?? "").isEmpty {
                         DisclosureGroup("Technical details") {
-                            Text(error)
+                            Text(technicalDetails(error: error, log: item.log))
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundColor(.secondary)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
+                }
+            } else if let log = item.log, !log.isEmpty {
+                DisclosureGroup("Technical details") {
+                    Text(log)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             
@@ -287,6 +286,13 @@ struct DownloadDetailView: View {
         .padding()
     }
     
+    private func technicalDetails(error: String, log: String?) -> String {
+        if let log, !log.isEmpty, log != error {
+            return log + "\n" + error
+        }
+        return error
+    }
+
     private func showInFinder(path: String) {
         let url = URL(fileURLWithPath: path)
         NSWorkspace.shared.activateFileViewerSelecting([url])

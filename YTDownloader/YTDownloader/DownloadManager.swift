@@ -63,21 +63,7 @@ class DownloadManager: ObservableObject {
         guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
 
         var item = queue[index]
-        item.status = status
-        if let progress {
-            item.progress = progress
-        }
-        if let error {
-            item.error = error
-        }
-        if let outputPath {
-            item.outputPath = outputPath
-        }
-
-        if status == .completed || status == .failed {
-            item.completedAt = Date()
-        }
-
+        item.applyStatus(status, progress: progress, error: error, outputPath: outputPath)
         queue[index] = item
         saveQueue()
 
@@ -99,7 +85,7 @@ class DownloadManager: ObservableObject {
     }
 
     private func isActive(_ status: DownloadStatus) -> Bool {
-        status == .queued || status == .downloading || status == .merging
+        status == .queued || status == .retrying || status == .downloading || status == .merging
     }
 
     private func processQueue() {
@@ -206,6 +192,21 @@ class DownloadManager: ObservableObject {
         }
 
         let delay = retryStrategy.delay(forAttempt: state.attempt)
+        let note = DownloadItem.retryStatusLine(
+            delay: delay,
+            attempt: state.attempt,
+            maxAttempts: retryStrategy.maxAttempts
+        )
+        if let index = queue.firstIndex(where: { $0.id == item.id }) {
+            var waiting = queue[index]
+            waiting.applyStatus(
+                .retrying,
+                retryNote: note,
+                appendLog: error.errorDescription
+            )
+            queue[index] = waiting
+            saveQueue()
+        }
         try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         await downloadItem(item)
     }
@@ -316,11 +317,8 @@ class DownloadManager: ObservableObject {
             return
         }
         queue = loaded.map { item in
-            guard item.status == .downloading || item.status == .merging else { return item }
             var copy = item
-            copy.status = .queued
-            copy.progress = 0
-            copy.error = "Interrupted; retrying"
+            copy.sanitizeAfterLoad()
             return copy
         }
         saveQueue()
