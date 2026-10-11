@@ -302,7 +302,9 @@ class DownloadManager: ObservableObject {
         }
 
         do {
-            try await runDownload(item, useCookies: true, cancellation: cancellations[item.id])
+            // Copy the token first: Swift 5.9 treats a dictionary subscript as inout.
+            let cancellation = cancellations[item.id]
+            try await runDownload(item, useCookies: true, cancellation: cancellation)
         } catch {
             let downloadError = error as? DownloadError ?? .unknown(error.localizedDescription)
             updateItemStatus(id: item.id, status: .failed, error: downloadError.errorDescription)
