@@ -14,11 +14,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        AppSession.shared.start()
         AppWindowController.shared.suppressUnsolicitedWindows()
         DispatchQueue.main.async {
             AppWindowController.shared.suppressUnsolicitedWindows()
             AppWindowController.shared.attachDelegate()
-            AppSession.shared.start()
         }
     }
 
@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
 

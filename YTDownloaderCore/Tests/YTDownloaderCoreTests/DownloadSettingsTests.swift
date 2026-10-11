@@ -52,7 +52,7 @@ final class AppIconCatalogTests: XCTestCase {
         let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         XCTAssertEqual(plist?["LSUIElement"] as? Bool, true)
         XCTAssertEqual(plist?["CFBundleIconName"] as? String, "AppIcon")
-        XCTAssertEqual(plist?["CFBundleIconFile"] as? String, "AppIcon")
+        XCTAssertEqual(plist?["CFBundleIconFile"] as? String, "YTDownloader")
     }
 
     func testStandaloneIcnsExists() {
