@@ -20,7 +20,7 @@ final class SiteAdapterTests: XCTestCase {
         XCTAssertEqual(adapter.concurrentFragments, 16)
         XCTAssertTrue(adapter.wantsExternalDownloader)
         XCTAssertEqual(adapter.externalDownloaderArgs, SiteAdapterRegistry.aria2cArgs)
-        XCTAssertEqual(SiteAdapterRegistry.aria2cArgs, "-j 16 -s 16 -x 16 -k 1M")
+        XCTAssertEqual(SiteAdapterRegistry.aria2cArgs, "-j 16 -s 16 -x 16 -k 1M --file-allocation=none")
     }
 
     func testVKDownloadArgsAddAria2cAndConcurrentFragments() {
@@ -30,13 +30,19 @@ final class SiteAdapterTests: XCTestCase {
         XCTAssertTrue(withAria.contains("--external-downloader"))
         XCTAssertTrue(withAria.contains("/tmp/aria2c"))
         XCTAssertTrue(withAria.contains("--external-downloader-args"))
-        XCTAssertTrue(withAria.contains("aria2c:-j 16 -s 16 -x 16 -k 1M"))
+        XCTAssertTrue(withAria.contains("aria2c:-j 16 -s 16 -x 16 -k 1M --file-allocation=none"))
         XCTAssertFalse(withAria.contains("-f"))
         XCTAssertFalse(withAria.contains("-S"))
 
         let withoutAria = SiteAdapterRegistry.vk.downloadArgs(aria2cPath: nil)
         XCTAssertTrue(withoutAria.contains("--concurrent-fragments"))
         XCTAssertFalse(withoutAria.contains("--external-downloader"))
+
+        // Speed flags must not change the sorter. Same -f/-S whether aria2c is present or not.
+        XCTAssertEqual(SiteAdapterRegistry.vk.formatSpec, "bv*+ba/b")
+        XCTAssertEqual(SiteAdapterRegistry.vk.formatSort, "res,fps,vbr,abr,proto:https")
+        XCTAssertFalse(withoutAria.contains("-f"))
+        XCTAssertFalse(withoutAria.contains("-S"))
     }
 
     func testYouTubeDownloadArgsStayEmptyEvenWithAria2c() {
