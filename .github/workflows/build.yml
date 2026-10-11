@@ -72,9 +72,11 @@ jobs:
         
         echo "Video info fetched successfully"
         
-        # Build and run format selector test
+        # Build the module first
         cd YTDownloaderCore
+        swift build
         
+        # Create test script
         cat > /tmp/test_real_video.swift << 'EOF'
         import Foundation
         @testable import YTDownloaderCore
@@ -100,7 +102,8 @@ jobs:
         print("Format selection test: PASSED")
         EOF
         
-        swift /tmp/test_real_video.swift
+        # Run with module path
+        swift -I .build/debug -L .build/debug -l YTDownloaderCore /tmp/test_real_video.swift
     
     - name: Download and merge short video
       run: |

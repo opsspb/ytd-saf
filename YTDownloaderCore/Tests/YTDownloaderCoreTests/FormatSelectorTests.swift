@@ -16,7 +16,8 @@ final class FormatSelectorTests: XCTestCase {
         let selected = try selector.selectBestFormats(from: info)
         
         XCTAssertEqual(selected.video.formatId, "701")
-        XCTAssertEqual(selected.video.height, 3840)
+        XCTAssertEqual(selected.video.width, 3840)
+        XCTAssertEqual(selected.video.height, 2160)
         XCTAssertEqual(selected.video.fps, 60)
         
         XCTAssertEqual(selected.audio.formatId, "251")

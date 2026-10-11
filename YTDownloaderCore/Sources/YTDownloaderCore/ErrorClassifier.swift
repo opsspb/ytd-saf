@@ -7,7 +7,7 @@ public struct ErrorClassifier {
     public func classifyError(from output: String) -> DownloadError {
         let lowercased = output.lowercased()
         
-        if lowercased.contains("sign in") || lowercased.contains("login required") {
+        if lowercased.contains("sign in") || lowercased.contains("login") {
             return .cookiesRequired
         }
         
@@ -15,7 +15,7 @@ public struct ErrorClassifier {
             return .ageRestricted
         }
         
-        if lowercased.contains("members-only") || lowercased.contains("members only") || lowercased.contains("join this channel") {
+        if lowercased.contains("members-only") || lowercased.contains("members only") || lowercased.contains("available to members") || lowercased.contains("join this channel") {
             return .membersOnly
         }
         
