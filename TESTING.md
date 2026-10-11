@@ -54,6 +54,24 @@ Used **installed app binaries** (not Homebrew). `VideoDownloadPipeline` is the s
 
 Container tag `ENCODER=Lavf…` only (muxer). Stream codecs match the selected yt-dlp formats → **copy, not re-encode**.
 
+### VK Video (v2, public only)
+
+```bash
+cd YTDownloaderCore
+swift run ytd-e2e --skip-homebrew --output ~/Downloads \
+  "https://vkvideo.ru/clip30014565_456240946" \
+  "https://vkvideo.ru/video-30558759_456239017"
+```
+
+Same `VideoDownloadPipeline` / app binaries. VK uses yt-dlp `-f "bv*+ba/b" -S "res,fps,vbr,abr,proto:https"` (not `FormatSelector`). Files left in `~/Downloads`.
+
+| Video | Chosen vs `yt-dlp -F` | ffprobe |
+|---|---|---|
+| Clip by @diamondoly (`clip30014565_456240946`, 23s) | **dash_sep-6+dash_sep-11** 1080×1920@30 + AAC 275k (highest res/fps; best HTTPS audio) | matroska, h264 + aac, 20.1 MB |
+| Назначен новый ректор РГГУ (`video-30558759_456239017`, 45s) | **dash_sep-5+dash_sep-10** 1280×720@25 + AAC 216k (highest available 720p) | matroska, h264 + aac, 12.4 MB |
+
+Sorter also checked (skip-download) on long fixtures: 1080p `video-220754053_456242564` → `dash_sep-6` 1920×1080@25; 4K `video-50883936_456244102` → `dash_sep-8` 3840×2160@25 13083k. Not downloaded (hours long).
+
 Public videos probed for multiple dubbed audio languages only exposed a single `language` (or none). Multi-language **selection** is covered by `FormatSelectorTests` + `video_info_4k_hdr_multilang.json`.
 
 ### URL scheme hand-off

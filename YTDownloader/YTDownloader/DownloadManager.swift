@@ -139,10 +139,10 @@ class DownloadManager: ObservableObject {
     private func runDownload(_ item: DownloadItem, useCookies: Bool) async throws {
         let adapter = SiteAdapterRegistry.adapter(for: item.url)
         if adapter.formatSpec != nil {
-            try await downloadBySort(item: item, adapter: adapter, useCookies: useCookies)
+            try await downloadBySort(item, adapter: adapter, useCookies: useCookies)
             return
         }
-        try await downloadYouTube(item: item, useCookies: useCookies)
+        try await downloadYouTube(item, useCookies: useCookies)
     }
 
     private func downloadYouTube(_ item: DownloadItem, useCookies: Bool) async throws {

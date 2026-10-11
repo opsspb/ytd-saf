@@ -540,6 +540,7 @@ public struct VideoDownloadPipeline: Sendable {
             "--no-warnings",
             "--no-part",
             "--force-overwrites",
+            "--no-simulate",
             "--newline",
             "--progress",
             "--progress-delta", "0.2",
@@ -569,8 +570,13 @@ public struct VideoDownloadPipeline: Sendable {
             }
             throw ErrorClassifier().classifyError(from: output)
         }
+        if !FileManager.default.fileExists(atPath: outputPath) {
+            if let found = firstMediaFile(in: (outputPath as NSString).deletingLastPathComponent) {
+                try FileManager.default.moveItem(atPath: found, toPath: outputPath)
+            }
+        }
         guard FileManager.default.fileExists(atPath: outputPath) else {
-            throw DownloadError.downloadFailed("yt-dlp finished without writing \(outputPath)")
+            throw DownloadError.downloadFailed("yt-dlp finished without writing \(outputPath)\n\(output)")
         }
         guard let choice = YTDLPOutputParser.parseMeta(from: output) else {
             return ParsedFormatChoice(extractor: "vk", id: "", title: "", formatId: "bv*+ba")
@@ -582,6 +588,17 @@ public struct VideoDownloadPipeline: Sendable {
         if result.stderr.isEmpty { return result.stdout }
         if result.stdout.isEmpty { return result.stderr }
         return result.stdout + "\n" + result.stderr
+    }
+
+    private func firstMediaFile(in directory: String) -> String? {
+        let exts = ["mkv", "mp4", "webm", "m4a"]
+        guard let items = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
+            return nil
+        }
+        return items
+            .filter { name in exts.contains((name as NSString).pathExtension.lowercased()) }
+            .map { (directory as NSString).appendingPathComponent($0) }
+            .first
     }
 
     private final class LockedText: @unchecked Sendable {
