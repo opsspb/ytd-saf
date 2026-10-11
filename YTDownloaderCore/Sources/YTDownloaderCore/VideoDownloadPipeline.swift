@@ -120,15 +120,30 @@ public struct VideoDownloadPipeline: Sendable {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
+
+        // Write to temp files instead of Pipe(). yt-dlp -J emits large JSON and
+        // a full unread pipe deadlocks the child against waitUntilExit().
+        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-out-\(UUID().uuidString)")
+        let errURL = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-err-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: outURL.path, contents: nil)
+        FileManager.default.createFile(atPath: errURL.path, contents: nil)
+        defer {
+            try? FileManager.default.removeItem(at: outURL)
+            try? FileManager.default.removeItem(at: errURL)
+        }
+
+        let outHandle = try FileHandle(forWritingTo: outURL)
+        let errHandle = try FileHandle(forWritingTo: errURL)
+        process.standardOutput = outHandle
+        process.standardError = errHandle
         try process.run()
         process.waitUntilExit()
+        try outHandle.close()
+        try errHandle.close()
+
         return ProcessResult(
-            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stdout: (try? String(contentsOf: outURL, encoding: .utf8)) ?? "",
+            stderr: (try? String(contentsOf: errURL, encoding: .utf8)) ?? "",
             status: process.terminationStatus
         )
     }
