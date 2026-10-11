@@ -21,6 +21,9 @@ jobs:
       run: |
         cd YTDownloaderCore
         swift test --parallel
+
+    - name: Run content script tests
+      run: swift Scripts/run-content-tests.swift
     
     - name: Build app
       run: |

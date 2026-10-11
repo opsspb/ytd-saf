@@ -1,6 +1,6 @@
 import Foundation
 
-public struct VideoFormat: Codable, Equatable {
+public struct VideoFormat: Codable, Equatable, Sendable {
     public let formatId: String
     public let ext: String
     public let resolution: String?
@@ -77,7 +77,7 @@ public struct VideoFormat: Codable, Equatable {
     }
 }
 
-public struct YTDLPInfo: Codable {
+public struct YTDLPInfo: Codable, Sendable {
     public let id: String
     public let title: String
     public let formats: [VideoFormat]
@@ -101,7 +101,7 @@ public struct YTDLPInfo: Codable {
     }
 }
 
-public struct SelectedFormats: Equatable {
+public struct SelectedFormats: Equatable, Sendable {
     public let video: VideoFormat
     public let audio: VideoFormat
     
@@ -219,7 +219,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     }
 }
 
-public enum CookieMode: String, Codable {
+public enum CookieMode: String, Codable, Sendable {
     case none
     case safari
     case file
