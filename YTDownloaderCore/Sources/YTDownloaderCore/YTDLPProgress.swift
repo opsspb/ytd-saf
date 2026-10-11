@@ -8,7 +8,8 @@ public enum YTDLPProgress {
 
         let patterns = [
             #"download:\s*([0-9]+(?:\.[0-9]+)?)\s*%"#,
-            #"\[download\]\s+([0-9]+(?:\.[0-9]+)?)\s*%"#
+            #"\[download\]\s+([0-9]+(?:\.[0-9]+)?)\s*%"#,
+            #"^\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$"#
         ]
         for pattern in patterns {
             if let percent = firstCapture(in: trimmed, pattern: pattern) {

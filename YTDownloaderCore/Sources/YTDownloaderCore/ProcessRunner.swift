@@ -16,20 +16,26 @@ public enum ProcessRunner {
         timeout: TimeInterval = 15,
         onOutput: (@Sendable (String) -> Void)? = nil
     ) throws -> ProcessRunResult {
-        if let onOutput {
-            return try runStreaming(executable: executable, arguments: arguments, timeout: timeout, onOutput: onOutput)
-        }
-        return try runToFiles(executable: executable, arguments: arguments, timeout: timeout)
+        return try runToFiles(
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout,
+            onOutput: onOutput
+        )
     }
 
     private static func runToFiles(
         executable: String,
         arguments: [String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        onOutput: (@Sendable (String) -> Void)?
     ) throws -> ProcessRunResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["PYTHONUNBUFFERED"] = "1"
+        process.environment = environment
 
         let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-out-\(UUID().uuidString)")
         let errURL = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-err-\(UUID().uuidString)")
@@ -46,7 +52,9 @@ public enum ProcessRunner {
         process.standardOutput = outHandle
         process.standardError = errHandle
 
+        let stop = tailFiles([outURL, errURL], onOutput: onOutput)
         let timedOut = try wait(for: process, timeout: timeout)
+        stop()
         try? outHandle.close()
         try? errHandle.close()
         return ProcessRunResult(
@@ -57,56 +65,48 @@ public enum ProcessRunner {
         )
     }
 
-    private static func runStreaming(
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval,
-        onOutput: @escaping @Sendable (String) -> Void
-    ) throws -> ProcessRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-
+    private static func tailFiles(
+        _ urls: [URL],
+        onOutput: (@Sendable (String) -> Void)?
+    ) -> () -> Void {
+        guard let onOutput else { return {} }
         let lock = NSLock()
-        var stdout = ""
-        var stderr = ""
-
-        let consume: (FileHandle, Bool) -> Void = { handle, isErr in
-            while true {
-                let data = handle.availableData
-                if data.isEmpty { break }
-                guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else { continue }
+        var offsets = Array(repeating: 0, count: urls.count)
+        var running = true
+        let queue = DispatchQueue(label: "ytd.process-tail")
+        func tick() {
+            for (index, url) in urls.enumerated() {
+                guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
+                defer { try? handle.close() }
                 lock.lock()
-                if isErr { stderr += chunk } else { stdout += chunk }
+                let offset = offsets[index]
+                lock.unlock()
+                _ = try? handle.seek(toOffset: UInt64(offset))
+                let data = handle.readDataToEndOfFile()
+                guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { continue }
+                lock.lock()
+                offsets[index] = offset + data.count
                 lock.unlock()
                 chunk.split(whereSeparator: \.isNewline).forEach { onOutput(String($0)) }
             }
         }
-
-        outPipe.fileHandleForReading.readabilityHandler = { handle in
-            consume(handle, false)
+        queue.async {
+            while true {
+                lock.lock()
+                let keep = running
+                lock.unlock()
+                if !keep { break }
+                tick()
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+            tick()
         }
-        errPipe.fileHandleForReading.readabilityHandler = { handle in
-            consume(handle, true)
+        return {
+            lock.lock()
+            running = false
+            lock.unlock()
+            queue.sync {}
         }
-
-        let timedOut = try wait(for: process, timeout: timeout)
-        outPipe.fileHandleForReading.readabilityHandler = nil
-        errPipe.fileHandleForReading.readabilityHandler = nil
-        consume(outPipe.fileHandleForReading, false)
-        consume(errPipe.fileHandleForReading, true)
-
-        lock.lock()
-        let out = stdout
-        let err = stderr
-        lock.unlock()
-        return ProcessRunResult(stdout: out, stderr: err, status: process.terminationStatus, timedOut: timedOut)
     }
 
     private static func wait(for process: Process, timeout: TimeInterval) throws -> Bool {

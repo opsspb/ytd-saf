@@ -6,6 +6,8 @@ final class ProgressAndFilenameTests: XCTestCase {
         XCTAssertEqual(YTDLPProgress.parse("[download]  12.3% of 10.00MiB at 1.00MiB/s") ?? -1, 0.123, accuracy: 0.0001)
         XCTAssertEqual(YTDLPProgress.parse("download:  45.0%") ?? -1, 0.45, accuracy: 0.0001)
         XCTAssertEqual(YTDLPProgress.parse("download:100%") ?? -1, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(YTDLPProgress.parse("  0.3%") ?? -1, 0.003, accuracy: 0.0001)
+        XCTAssertEqual(YTDLPProgress.parse("100.0%") ?? -1, 1.0, accuracy: 0.0001)
         XCTAssertNil(YTDLPProgress.parse("Downloading webpage"))
     }
 

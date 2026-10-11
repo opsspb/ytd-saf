@@ -99,6 +99,7 @@ public struct VideoDownloadPipeline: Sendable {
             "--no-part",
             "--newline",
             "--progress",
+            "--progress-delta", "0.2",
             "--progress-template", "download:%(progress._percent_str)s",
             url
         ]

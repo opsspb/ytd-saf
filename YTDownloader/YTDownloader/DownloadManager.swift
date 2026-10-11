@@ -13,6 +13,7 @@ class DownloadManager: ObservableObject {
 
     private var activeDownloads = 0
     private var retryStates: [UUID: RetryState] = [:]
+    private var lastProgressSave = Date.distantPast
     private let queueFile: URL
 
     var selectedItem: DownloadItem? {
@@ -91,6 +92,10 @@ class DownloadManager: ObservableObject {
         var item = queue[index]
         item.progress = min(max(progress, item.progress), 1)
         queue[index] = item
+        if Date().timeIntervalSince(lastProgressSave) >= 0.4 {
+            lastProgressSave = Date()
+            saveQueue()
+        }
     }
 
     private func isActive(_ status: DownloadStatus) -> Bool {
