@@ -23,6 +23,9 @@ struct YTDE2E {
             }
         }
 
+        setbuf(stdout, nil)
+        setbuf(stderr, nil)
+
         if urls.isEmpty {
             urls = [
                 "https://www.youtube.com/watch?v=jNQXAC9IVRw",

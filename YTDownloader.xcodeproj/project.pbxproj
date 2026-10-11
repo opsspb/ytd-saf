@@ -13,6 +13,7 @@
 		AA0000010000000000000004 /* BinaryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000014 /* BinaryManager.swift */; };
 		AA0000010000000000000005 /* NativeMessaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000015 /* NativeMessaging.swift */; };
 		AA0000010000000000000006 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000016 /* SettingsView.swift */; };
+		AA0000010000000000000009 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000017 /* AppDelegate.swift */; };
 		AA0000010000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000021 /* Assets.xcassets */; };
 		AA0000010000000000000008 /* YTDownloaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000010000000000000031 /* YTDownloaderCore */; };
 		AA0000010000000000000101 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000111 /* SafariWebExtensionHandler.swift */; };
@@ -54,6 +55,7 @@
 		AA0000010000000000000014 /* BinaryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BinaryManager.swift; sourceTree = "<group>"; };
 		AA0000010000000000000015 /* NativeMessaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMessaging.swift; sourceTree = "<group>"; };
 		AA0000010000000000000016 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AA0000010000000000000017 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		AA0000010000000000000021 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA0000010000000000000022 /* YTDownloader.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YTDownloader.entitlements; sourceTree = "<group>"; };
 		AA0000010000000000000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -92,6 +94,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000010000000000000011 /* YTDownloaderApp.swift */,
+				AA0000010000000000000017 /* AppDelegate.swift */,
 				AA0000010000000000000012 /* ContentView.swift */,
 				AA0000010000000000000013 /* DownloadManager.swift */,
 				AA0000010000000000000014 /* BinaryManager.swift */,
@@ -276,6 +279,7 @@
 				AA0000010000000000000004 /* BinaryManager.swift in Sources */,
 				AA0000010000000000000005 /* NativeMessaging.swift in Sources */,
 				AA0000010000000000000006 /* SettingsView.swift in Sources */,
+				AA0000010000000000000009 /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

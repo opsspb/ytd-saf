@@ -2,9 +2,17 @@ import SwiftUI
 
 @main
 struct YTDownloaderApp: App {
-    @StateObject private var downloadManager = DownloadManager()
-    @StateObject private var binaryManager = BinaryManager()
-    @StateObject private var nativeMessaging = NativeMessaging.shared
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var downloadManager: DownloadManager
+    @StateObject private var binaryManager: BinaryManager
+
+    init() {
+        let downloads = DownloadManager()
+        _downloadManager = StateObject(wrappedValue: downloads)
+        _binaryManager = StateObject(wrappedValue: BinaryManager())
+        // Attach before the first scene so a launch URL is not dropped.
+        NativeMessaging.shared.attach(downloadManager: downloads)
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -15,7 +23,6 @@ struct YTDownloaderApp: App {
                     NativeMessaging.shared.handle(url: url)
                 }
                 .task {
-                    NativeMessaging.shared.attach(downloadManager: downloadManager)
                     await binaryManager.setup()
                 }
         }
