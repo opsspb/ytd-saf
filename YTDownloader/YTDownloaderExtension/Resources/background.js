@@ -1,19 +1,18 @@
-// Background service worker
+// Background service worker for Safari
 browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'download') {
         const { videoId, url } = request;
         
-        browser.runtime.sendNativeMessage('application.id', {
+        // Send message to the SafariWebExtensionHandler
+        browser.runtime.sendMessage({
             action: 'download',
             videoId: videoId,
             url: url
-        }, (response) => {
-            if (browser.runtime.lastError) {
-                console.error('Native messaging error:', browser.runtime.lastError);
-                sendResponse({ success: false, error: browser.runtime.lastError.message });
-            } else {
-                sendResponse(response);
-            }
+        }).then(response => {
+            sendResponse(response);
+        }).catch(error => {
+            console.error('Error sending message to native handler:', error);
+            sendResponse({ success: false, error: error.message });
         });
         
         return true;

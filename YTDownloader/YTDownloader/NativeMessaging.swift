@@ -1,77 +1,54 @@
 import Foundation
+import AppKit
 
 class NativeMessaging: ObservableObject {
     static let shared = NativeMessaging()
     
     weak var downloadManager: DownloadManager?
     
-    private let groupIdentifier = "group.com.ytdownloader.shared"
-    private var containerURL: URL?
-    private var requestsURL: URL?
-    private var timer: Timer?
-    
     private init() {
-        setupSharedContainer()
-        startMonitoring()
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:replyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
     }
     
-    private func setupSharedContainer() {
-        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupIdentifier) else {
-            print("Failed to get app group container")
+    @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, replyEvent: NSAppleEventDescriptor) {
+        guard let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: urlString),
+              url.scheme == "ytdownloader",
+              url.host == "download" else {
             return
         }
         
-        containerURL = container
-        requestsURL = container.appendingPathComponent("requests")
-        
-        try? FileManager.default.createDirectory(at: requestsURL!, withIntermediateDirectories: true)
-    }
-    
-    private func startMonitoring() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            self?.checkForRequests()
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = components.queryItems else {
+            return
         }
-    }
-    
-    private func checkForRequests() {
-        guard let requestsURL = requestsURL else { return }
         
-        do {
-            let files = try FileManager.default.contentsOfDirectory(
-                at: requestsURL,
-                includingPropertiesForKeys: nil
-            )
-            
-            for file in files where file.pathExtension == "json" {
-                processRequest(at: file)
+        var videoId: String?
+        var videoURL: String?
+        
+        for item in queryItems {
+            if item.name == "videoId" {
+                videoId = item.value
+            } else if item.name == "url" {
+                videoURL = item.value
             }
-        } catch {
-            // Silent fail
         }
-    }
-    
-    private func processRequest(at url: URL) {
-        do {
-            let data = try Data(contentsOf: url)
-            let request = try JSONDecoder().decode(DownloadRequest.self, from: data)
-            
-            Task { @MainActor in
-                downloadManager?.addDownload(videoId: request.videoId, url: request.url)
-            }
-            
-            try FileManager.default.removeItem(at: url)
-        } catch {
-            try? FileManager.default.removeItem(at: url)
+        
+        guard let videoId = videoId, let videoURL = videoURL else {
+            return
+        }
+        
+        Task { @MainActor in
+            downloadManager?.addDownload(videoId: videoId, url: videoURL)
         }
     }
     
     func sendStatusUpdate(videoId: String, status: String, progress: Double) {
-        // Optional: write status to shared container for extension to read
+        // Future: Could implement distributed notifications for status updates
     }
-}
-
-struct DownloadRequest: Codable {
-    let videoId: String
-    let url: String
-    let timestamp: Date
 }
