@@ -5,13 +5,15 @@
     <title>YD Safari click verify</title>
     <link rel="stylesheet" href="../YTDownloader/YTDownloaderExtension/Resources/styles.css">
     <style>
-        body { margin: 40px; font-family: Roboto, sans-serif; background: #111; color: #fff; }
+        html, body { margin: 0; padding: 20px; font-family: Roboto, sans-serif; background: #111; color: #fff; }
         #top-level-buttons-computed { display: none; }
-        #actions-inner { display: flex; align-items: center; height: 36px; gap: 8px; margin: 24px 0; }
+        #actions-inner { display: flex; align-items: center; height: 80px; gap: 8px; }
         like-button-view-model, yt-button-view-model {
             display: inline-flex; align-items: center; height: 36px; padding: 0 12px;
             background: #272727; border-radius: 18px;
         }
+        #ytd-download-button { width: 220px !important; height: 72px !important; font-size: 28px !important; }
+        .ytd-card-download-button { width: 220px !important; height: 72px !important; font-size: 28px !important; }
         .ytLockupMetadataViewModelAvatar { width: 36px; height: 36px; background: #666; border-radius: 50%; }
         yt-lockup-view-model { display: block; margin-top: 40px; }
     </style>
@@ -28,16 +30,15 @@
     </ytd-watch-metadata>
     <ytd-rich-item-renderer>
         <yt-lockup-view-model>
-            <a class="ytLockupViewModelContentImage" href="/watch?v=jNQXAC9IVRw">thumb</a>
+            <a class="ytLockupViewModelContentImage" href="/watch?v=safariCard99">thumb</a>
             <div class="ytLockupMetadataViewModelAvatar"></div>
         </yt-lockup-view-model>
     </ytd-rich-item-renderer>
     <script>window.__YTD_TEST__ = true;</script>
     <script src="../YTDownloader/YTDownloaderExtension/Resources/content.js"></script>
     <script>
-        history.replaceState({}, '', '?v=jNQXAC9IVRw');
+        history.replaceState({}, '', '?v=safariWatch99');
         YTD.refresh();
-        window.__ready = true;
     </script>
 </body>
 </html>
