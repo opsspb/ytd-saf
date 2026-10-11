@@ -1,0 +1,2 @@
+Run ./generate_icons.sh to create icon files from icon.svg
+Requires: brew install librsvg

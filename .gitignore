@@ -60,3 +60,10 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Generated icons (regenerate with ./generate_icons.sh)
+YTDownloader/Resources/Assets.xcassets/AppIcon.appiconset/*.png
+YTDownloader/YTDownloaderExtension/Resources/icon-*.png
+
+# App data
+DerivedData/

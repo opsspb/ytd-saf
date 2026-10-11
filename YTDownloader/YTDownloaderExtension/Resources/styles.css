@@ -1,0 +1,23 @@
+/* Styles for YTDownloader buttons */
+#ytd-download-button {
+    background-color: rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+}
+
+#ytd-download-button:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+#ytd-download-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.ytd-thumbnail-button:hover {
+    background: rgba(0, 0, 0, 0.9) !important;
+    transform: scale(1.05);
+}
+
+.ytd-thumbnail-button:active {
+    transform: scale(0.95);
+}

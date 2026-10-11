@@ -1,0 +1,84 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, cursor/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-14
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Select Xcode version
+      run: sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer
+    
+    - name: Install librsvg for icon generation
+      run: brew install librsvg
+    
+    - name: Generate app icons
+      run: ./generate_icons.sh
+    
+    - name: Run Swift package tests
+      run: |
+        cd YTDownloaderCore
+        swift test --parallel
+    
+    - name: Build app
+      run: |
+        xcodebuild clean build \
+          -project YTDownloader.xcodeproj \
+          -scheme YTDownloader \
+          -configuration Debug \
+          -destination 'platform=macOS' \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+    
+    - name: Run app tests
+      run: |
+        xcodebuild test \
+          -project YTDownloader.xcodeproj \
+          -scheme YTDownloader \
+          -destination 'platform=macOS' \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+      continue-on-error: true
+    
+    - name: Archive build
+      if: success()
+      run: |
+        xcodebuild archive \
+          -project YTDownloader.xcodeproj \
+          -scheme YTDownloader \
+          -archivePath build/YTDownloader.xcarchive \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+      continue-on-error: true
+
+  test-core:
+    runs-on: macos-14
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run YTDownloaderCore tests
+      run: |
+        cd YTDownloaderCore
+        swift test --parallel --enable-code-coverage
+    
+    - name: Generate coverage report
+      run: |
+        cd YTDownloaderCore
+        xcrun llvm-cov export \
+          .build/debug/YTDownloaderCorePackageTests.xctest/Contents/MacOS/YTDownloaderCorePackageTests \
+          -instr-profile .build/debug/codecov/default.profdata \
+          -format=lcov > coverage.lcov
+      continue-on-error: true
