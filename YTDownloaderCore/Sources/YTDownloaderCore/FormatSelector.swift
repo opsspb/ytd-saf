@@ -4,8 +4,9 @@ public struct FormatSelector {
     public init() {}
     
     /// Selects the best video and audio formats according to the priority rules:
-    /// Video: (a) highest resolution, (b) highest fps, (c) progressive/DASH over HLS, (d) highest video bitrate
-    /// Audio: original language track with highest audio bitrate, preferring DASH/https over HLS
+    /// Video: (a) highest resolution, (b) highest fps, (c) highest video bitrate (`vbr`, else `tbr`),
+    /// (d) protocol only as a final tie-breaker (https/DASH over HLS).
+    /// Audio: original language track with highest audio bitrate; protocol then non-DRC as tie-breakers.
     public func selectBestFormats(from info: YTDLPInfo) throws -> SelectedFormats {
         let videoFormats = info.formats.filter { isDownloadableVideo($0) }
         let audioFormats = info.formats.filter { isDownloadableAudio($0) }
@@ -40,13 +41,13 @@ public struct FormatSelector {
                 return fps1 > fps2
             }
 
-            let proto1 = protocolQuality(format1)
-            let proto2 = protocolQuality(format2)
-            if proto1 != proto2 {
-                return proto1 > proto2
+            let vbr1 = videoBitrate(format1)
+            let vbr2 = videoBitrate(format2)
+            if vbr1 != vbr2 {
+                return vbr1 > vbr2
             }
-            
-            return videoBitrate(format1) > videoBitrate(format2)
+
+            return protocolQuality(format1) > protocolQuality(format2)
         }
         
         return sorted[0]
@@ -70,16 +71,16 @@ public struct FormatSelector {
                 return langPref1 > langPref2
             }
 
-            let proto1 = protocolQuality(format1)
-            let proto2 = protocolQuality(format2)
-            if proto1 != proto2 {
-                return proto1 > proto2
-            }
-            
             let abr1 = format1.abr ?? format1.tbr ?? 0
             let abr2 = format2.abr ?? format2.tbr ?? 0
             if abr1 != abr2 {
                 return abr1 > abr2
+            }
+
+            let proto1 = protocolQuality(format1)
+            let proto2 = protocolQuality(format2)
+            if proto1 != proto2 {
+                return proto1 > proto2
             }
 
             let drc1 = isDRC(format1)
@@ -112,8 +113,7 @@ public struct FormatSelector {
         return true
     }
 
-    /// Prefer progressive/DASH (`https`, `http_dash_segments`) over HLS (`m3u8_native`).
-    /// HLS often advertises a higher tbr at the same resolution and downloads as mpegts.
+    /// Progressive/DASH outranks HLS only when res, fps, and bitrate are equal.
     func protocolQuality(_ format: VideoFormat) -> Int {
         let proto = (format.protocolName ?? "").lowercased()
         if proto.contains("m3u8") || proto.contains("hls") {
