@@ -66,6 +66,7 @@
 		AA0000010000000000000126 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0000010000000000000131 /* YTDownloader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YTDownloader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000010000000000000141 /* YTDownloaderExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = YTDownloaderExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000010000000000000193 /* YTDownloaderCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = YTDownloaderCore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -148,7 +149,16 @@
 				AA0000010000000000000171 /* YTDownloader */,
 				AA0000010000000000000172 /* YTDownloaderExtension */,
 				AA0000010000000000000173 /* Products */,
+				AA0000010000000000000192 /* Packages */,
 			);
+			sourceTree = "<group>";
+		};
+		AA0000010000000000000192 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000010000000000000193 /* YTDownloaderCore */,
+			);
+			name = Packages;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -221,6 +231,7 @@
 			);
 			mainGroup = AA0000010000000000000191;
 			packageReferences = (
+				AA0000010000000000000194 /* XCLocalSwiftPackageReference "YTDownloaderCore" */,
 			);
 			productRefGroup = AA0000010000000000000173 /* Products */;
 			projectDirPath = "";
@@ -541,9 +552,17 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		AA0000010000000000000194 /* XCLocalSwiftPackageReference "YTDownloaderCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = YTDownloaderCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		AA0000010000000000000031 /* YTDownloaderCore */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = AA0000010000000000000194 /* XCLocalSwiftPackageReference "YTDownloaderCore" */;
 			productName = YTDownloaderCore;
 		};
 /* End XCSwiftPackageProductDependency section */
