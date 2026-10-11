@@ -19,6 +19,12 @@ swift Scripts/run-content-tests.swift
 
 Loads `YTDownloader/YTDownloaderExtension/Resources/content.test.html` in WKWebView. Expected: **16 passed, 0 failed** (previous card/watch cases plus lockup click hand-off, modern Like/Share actions row, relocate out of a hidden leftover row).
 
+```bash
+swift Scripts/run-content-tests.swift YTDownloader/YTDownloaderExtension/Resources/vk.test.html
+```
+
+VK fixtures use `data-testid` + hrefs (`video_card_author`, `grid-item`, `clip-preview-owner`). Expected: all passed, 0 failed (card/watch YD, no-navigation, skip live/playlist).
+
 ### Binary bootstrap (clean, not Homebrew)
 
 `BinaryBootstrap(preferHomebrew: false)` downloaded:

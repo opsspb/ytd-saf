@@ -2,18 +2,37 @@
   "manifest_version": 3,
   "name": "YTDownloader",
   "version": "1.0",
-  "description": "Download YouTube videos in the best quality with yt-dlp",
+  "description": "Download YouTube and VK Video in the best quality with yt-dlp",
   "permissions": [
     "nativeMessaging",
     "storage"
   ],
   "host_permissions": [
-    "*://*.youtube.com/*"
+    "*://*.youtube.com/*",
+    "*://*.vkvideo.ru/*",
+    "*://vkvideo.ru/*",
+    "*://*.vk.com/*",
+    "*://vk.com/*",
+    "*://*.vk.ru/*",
+    "*://vk.ru/*"
   ],
   "content_scripts": [
     {
       "matches": ["*://*.youtube.com/*"],
       "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.vkvideo.ru/*",
+        "*://vkvideo.ru/*",
+        "*://*.vk.com/*",
+        "*://vk.com/*",
+        "*://*.vk.ru/*",
+        "*://vk.ru/*"
+      ],
+      "js": ["vk.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }

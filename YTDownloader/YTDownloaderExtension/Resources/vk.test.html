@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>YTDownloader VK Content Script Tests</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .test { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        .test.pass { background: #e8f5e9; border-color: #4caf50; }
+        .test.fail { background: #ffebee; border-color: #f44336; }
+        .test h3 { margin: 0 0 10px 0; }
+        #fixtures { position: absolute; left: -9999px; top: 0; width: 480px; }
+        [data-testid="video_card_author"], [data-testid="clip-preview-owner"] {
+            display: inline-block; width: 36px; height: 36px; background: #ccc; border-radius: 50%;
+        }
+        .vk-actions { display: flex; align-items: center; height: 36px; }
+        .vk-action { height: 36px; border-radius: 18px; padding: 0 16px; }
+    </style>
+</head>
+<body>
+    <h1>YTDownloader VK Content Script Tests</h1>
+    <div id="results"></div>
+
+    <div id="fixtures">
+        <div data-testid="grid-item" id="vk-card">
+            <a href="/video-30558759_456239017">thumb</a>
+            <div data-testid="video_card_info_layout_container">
+                <a data-testid="video_card_author" href="/club30558759" aria-label="Channel"></a>
+                <div data-testid="video_card_title">News clip</div>
+            </div>
+        </div>
+
+        <div data-testid="grid-item" id="vk-clip-card">
+            <a href="/clip30014565_456240946">clip thumb</a>
+            <div data-testid="clip-preview-owner"></div>
+            <div data-testid="video_card_title">Clip title</div>
+        </div>
+
+        <div data-testid="grid-item" id="vk-z-card">
+            <a href="https://vk.com/videos-77521?z=video-77521_162222515%2Fclub77521">legacy z</a>
+            <div data-testid="video_card_info_layout_container">
+                <div data-testid="video_card_author"></div>
+            </div>
+        </div>
+
+        <div data-testid="grid-item" id="vk-live-card">
+            <a href="/live-12345">live</a>
+            <div data-testid="video_card_author"></div>
+        </div>
+
+        <div data-testid="grid-item" id="vk-playlist-card">
+            <a href="/playlist/-204353299_426">playlist</a>
+            <div data-testid="video_card_author"></div>
+        </div>
+
+        <div data-testid="grid-item" id="vk-skeleton-card">
+            <div data-testid="video_card_info_layout_container"></div>
+        </div>
+
+        <div class="vk-actions" id="vk-watch-actions">
+            <button class="vk-action" type="button" aria-label="Нравится">Like</button>
+            <button class="vk-action" type="button" aria-label="Поделиться">Share</button>
+        </div>
+    </div>
+
+    <script>window.__YTD_TEST__ = true;</script>
+    <script src="vk.js"></script>
+    <script>
+        const results = document.getElementById('results');
+        let testsPassed = 0;
+        let testsFailed = 0;
+
+        function addResult(name, passed, message) {
+            const div = document.createElement('div');
+            div.className = 'test ' + (passed ? 'pass' : 'fail');
+            div.innerHTML = `<h3>${passed ? '✓' : '✗'} ${name}</h3><p>${message}</p>`;
+            results.appendChild(div);
+            if (passed) testsPassed++;
+            else testsFailed++;
+        }
+
+        function testParseHref() {
+            const video = YTDVK.parseVKHref('/video-30558759_456239017');
+            const clip = YTDVK.parseVKHref('https://vkvideo.ru/clip30014565_456240946');
+            const z = YTDVK.parseVKHref('https://vk.com/feed?z=video-43215063_166094326');
+            const live = YTDVK.parseVKHref('/live-12345');
+            const playlist = YTDVK.parseVKHref('/playlist/-1_2');
+            const embed = YTDVK.parseVKHref('https://vk.com/video_ext.php?oid=-1&id=2');
+            const passed = video && video.id === '-30558759_456239017'
+                && clip && clip.kind === 'clip' && clip.id === '30014565_456240946'
+                && z && z.id === '-43215063_166094326'
+                && !live && !playlist && !embed;
+            addResult('Parse VK hrefs and skip live/playlist/embed', passed,
+                passed ? 'Matcher accepts video/clip/z= and rejects unsupported' : JSON.stringify({video, clip, z, live, playlist, embed}));
+        }
+
+        function testCardPlacement() {
+            YTDVK.insertButtonsOnCards();
+            const card = document.getElementById('vk-card');
+            const button = card.querySelector('.ytd-card-download-button');
+            const author = card.querySelector('[data-testid="video_card_author"]');
+            const column = card.querySelector('.ytd-card-avatar-column');
+            const passed = !!button && !!column && column.contains(author) && column.contains(button)
+                && !author.contains(button)
+                && button.getAttribute('data-video-id') === '-30558759_456239017';
+            addResult('Card YD under author avatar', passed,
+                passed ? 'YD sits under video_card_author' : `button=${!!button} column=${!!column}`);
+        }
+
+        function testClipCard() {
+            YTDVK.insertButtonsOnCards();
+            const card = document.getElementById('vk-clip-card');
+            const button = card.querySelector('.ytd-card-download-button');
+            const passed = !!button && button.getAttribute('data-video-id') === '30014565_456240946'
+                && button.getAttribute('data-video-url') === 'https://vkvideo.ru/clip30014565_456240946';
+            addResult('Clip card uses clip URL', passed,
+                passed ? 'Clip card queued clip30014565_456240946' : JSON.stringify(button && button.outerHTML));
+        }
+
+        function testZLink() {
+            YTDVK.insertButtonsOnCards();
+            const button = document.querySelector('#vk-z-card .ytd-card-download-button');
+            const passed = !!button && button.getAttribute('data-video-id') === '-77521_162222515';
+            addResult('vk.com ?z= video card', passed,
+                passed ? 'z= query extracted' : 'missing z= button');
+        }
+
+        function testSkipsUnsupported() {
+            YTDVK.insertButtonsOnCards();
+            const live = document.getElementById('vk-live-card');
+            const playlist = document.getElementById('vk-playlist-card');
+            const passed = live.getAttribute('data-ytd-card-button') === 'skipped'
+                && !live.querySelector('.ytd-card-download-button')
+                && playlist.getAttribute('data-ytd-card-button') === 'skipped'
+                && !playlist.querySelector('.ytd-card-download-button');
+            addResult('Skips live and playlist cards', passed,
+                passed ? 'Unsupported cards skipped' : 'live/playlist still injectable');
+        }
+
+        function testSkeletonRetry() {
+            YTDVK.insertButtonsOnCards();
+            const skeleton = document.getElementById('vk-skeleton-card');
+            const marked = skeleton.getAttribute('data-ytd-card-button');
+            const passed = !marked || (marked !== 'added' && marked !== 'skipped');
+            addResult('Incomplete cards are retried', passed,
+                passed ? 'Skeleton not permanently marked' : 'Skeleton marked ' + marked);
+
+            const link = document.createElement('a');
+            link.href = '/video123_456';
+            skeleton.appendChild(link);
+            const author = document.createElement('div');
+            author.setAttribute('data-testid', 'video_card_author');
+            skeleton.appendChild(author);
+            YTDVK.insertButtonsOnCards();
+            const button = skeleton.querySelector('.ytd-card-download-button');
+            addResult('Hydrated VK card gets a button', !!button,
+                button ? 'Retry after hydration injected YD' : 'Hydrated card still missing YD');
+        }
+
+        function testNoNavigation() {
+            let linkClicked = false;
+            const wrap = document.createElement('a');
+            wrap.href = '/video-1_2';
+            wrap.addEventListener('click', () => { linkClicked = true; });
+            const card = document.createElement('div');
+            card.setAttribute('data-testid', 'grid-item');
+            card.id = 'vk-nav-card';
+            card.innerHTML = '<a href="/video-99_100">t</a><div data-testid="video_card_author"></div>';
+            wrap.appendChild(card);
+            document.getElementById('fixtures').appendChild(wrap);
+            YTDVK.insertButtonsOnCards();
+            const button = card.querySelector('.ytd-card-download-button');
+            if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            const passed = !!button && !linkClicked;
+            addResult('Card click does not navigate', passed,
+                passed ? 'Click isolated from parent link' : 'Parent link received click');
+        }
+
+        function testCardClickQueues() {
+            YTDVK.insertButtonsOnCards();
+            const button = document.querySelector('#vk-card .ytd-card-download-button');
+            if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            const queued = YTDVK.lastQueued && YTDVK.lastQueued.videoId === '-30558759_456239017';
+            addResult('Card click queues download', !!button && queued,
+                queued ? 'Handed off -30558759_456239017' : JSON.stringify(YTDVK.lastQueued));
+        }
+
+        function testWatchPill() {
+            history.replaceState({}, '', '#video-30558759_456239017');
+            YTDVK.insertButtonOnWatchPage();
+            const row = document.getElementById('vk-watch-actions');
+            const button = document.getElementById('ytd-download-button');
+            const last = row.lastElementChild === button;
+            const passed = !!button && last && button.className.includes('ytd-watch-download-button');
+            addResult('Watch page pill', passed,
+                passed ? 'YD appended next to Like/Share' : `button=${!!button} last=${last}`);
+            if (button) {
+                button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                const queued = YTDVK.lastQueued && YTDVK.lastQueued.videoId === '-30558759_456239017';
+                addResult('Watch pill click queues download', queued,
+                    queued ? 'Watch YD handed off video' : JSON.stringify(YTDVK.lastQueued));
+            } else {
+                addResult('Watch pill click queues download', false, 'No watch button');
+            }
+        }
+
+        function testInfiniteScroll() {
+            const extra = document.createElement('div');
+            extra.setAttribute('data-testid', 'grid-item');
+            extra.id = 'vk-scrolled-card';
+            extra.innerHTML = '<a href="/clip-53316211_456243863">t</a><div data-testid="clip-preview-owner"></div>';
+            document.getElementById('fixtures').appendChild(extra);
+            YTDVK.insertButtonsOnCards();
+            const button = extra.querySelector('.ytd-card-download-button');
+            addResult('Infinite scroll card', !!button && button.getAttribute('data-video-id') === '-53316211_456243863',
+                button ? 'New card received a YD button' : 'Scrolled-in card was missed');
+        }
+
+        function testCaptureBlockersDoNotSwallowClick() {
+            YTDVK.insertButtonsOnCards();
+            const button = document.querySelector('#vk-clip-card .ytd-card-download-button');
+            let downPrevented = false;
+            const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+            if (button) {
+                button.dispatchEvent(down);
+                downPrevented = down.defaultPrevented;
+                button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            }
+            const queued = YTDVK.lastQueued && YTDVK.lastQueued.videoId === '30014565_456240946';
+            addResult('pointerdown blocked, click still hands off', !!button && downPrevented && queued,
+                queued ? 'mousedown isolated and click queued' : `down=${downPrevented} queued=${JSON.stringify(YTDVK.lastQueued)}`);
+        }
+
+        testParseHref();
+        testCardPlacement();
+        testClipCard();
+        testZLink();
+        testSkipsUnsupported();
+        testSkeletonRetry();
+        testNoNavigation();
+        testCardClickQueues();
+        testWatchPill();
+        testInfiniteScroll();
+        testCaptureBlockersDoNotSwallowClick();
+
+        const summary = document.createElement('div');
+        summary.style.cssText = 'margin-top: 30px; padding: 20px; background: #f5f5f5; border-radius: 4px; font-size: 18px; font-weight: bold;';
+        summary.innerHTML = `Tests: ${testsPassed + testsFailed} | Passed: ${testsPassed} | Failed: ${testsFailed}`;
+        summary.style.color = testsFailed === 0 ? '#4caf50' : '#f44336';
+        results.appendChild(summary);
+        console.log(`Tests completed: ${testsPassed} passed, ${testsFailed} failed`);
+    </script>
+</body>
+</html>

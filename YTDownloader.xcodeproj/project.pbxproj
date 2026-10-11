@@ -24,6 +24,7 @@
 		AA0000010000000000000106 /* icon-48.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000127 /* icon-48.png */; };
 		AA0000010000000000000107 /* icon-96.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000128 /* icon-96.png */; };
 		AA0000010000000000000108 /* icon-128.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000129 /* icon-128.png */; };
+		AA0000010000000000000109 /* vk.js in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000130 /* vk.js */; };
 		AA0000010000000000000151 /* YTDownloaderExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000141 /* YTDownloaderExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -65,6 +66,7 @@
 		AA0000010000000000000111 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
 		AA0000010000000000000121 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		AA0000010000000000000122 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = content.js; sourceTree = "<group>"; };
+		AA0000010000000000000130 /* vk.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = vk.js; sourceTree = "<group>"; };
 		AA0000010000000000000123 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = background.js; sourceTree = "<group>"; };
 		AA0000010000000000000124 /* styles.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = styles.css; sourceTree = "<group>"; };
 		AA0000010000000000000127 /* icon-48.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "icon-48.png"; sourceTree = "<group>"; };
@@ -137,6 +139,7 @@
 			children = (
 				AA0000010000000000000121 /* manifest.json */,
 				AA0000010000000000000122 /* content.js */,
+				AA0000010000000000000130 /* vk.js */,
 				AA0000010000000000000123 /* background.js */,
 				AA0000010000000000000124 /* styles.css */,
 				AA0000010000000000000127 /* icon-48.png */,
@@ -262,6 +265,7 @@
 			files = (
 				AA0000010000000000000102 /* manifest.json in Resources */,
 				AA0000010000000000000103 /* content.js in Resources */,
+				AA0000010000000000000109 /* vk.js in Resources */,
 				AA0000010000000000000104 /* background.js in Resources */,
 				AA0000010000000000000105 /* styles.css in Resources */,
 				AA0000010000000000000106 /* icon-48.png in Resources */,
