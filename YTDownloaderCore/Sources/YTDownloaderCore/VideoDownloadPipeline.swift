@@ -17,6 +17,7 @@ public struct DownloadPipelineResult: Sendable {
 public struct VideoDownloadPipeline: Sendable {
     public let ytdlpPath: String
     public let ffmpegPath: String
+    public let aria2cPath: String?
     public var cookieMode: CookieMode
     public var cookieFilePath: String?
 
@@ -24,12 +25,14 @@ public struct VideoDownloadPipeline: Sendable {
         ytdlpPath: String,
         ffmpegPath: String,
         cookieMode: CookieMode = .none,
-        cookieFilePath: String? = nil
+        cookieFilePath: String? = nil,
+        aria2cPath: String? = nil
     ) {
         self.ytdlpPath = ytdlpPath
         self.ffmpegPath = ffmpegPath
         self.cookieMode = cookieMode
         self.cookieFilePath = cookieFilePath
+        self.aria2cPath = aria2cPath
     }
 
     public func listFormats(url: String) throws -> String {
@@ -469,28 +472,41 @@ public struct VideoDownloadPipeline: Sendable {
                 adapter: adapter,
                 outputPath: tempOutput,
                 useCookies: useCookies,
+                useExternalDownloader: true,
                 onProgress: onProgress,
                 onMerging: onMerging
             )
         } catch {
             let text = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-            guard isMergeFailure(text.lowercased()),
-                  let recovered = YTDLPOutputParser.parseMeta(from: text) else {
-                throw error
-            }
-            if let audioId = recovered.audioFormatId {
-                try downloadSeparatelyAndMerge(
+            if isExternalDownloaderFailure(text) {
+                choice = try downloadSortedOnce(
                     url: url,
-                    videoFormatId: recovered.videoFormatId,
-                    audioFormatId: audioId,
+                    adapter: adapter,
                     outputPath: tempOutput,
                     useCookies: useCookies,
+                    useExternalDownloader: false,
                     onProgress: onProgress,
                     onMerging: onMerging
                 )
-                choice = recovered
             } else {
-                throw error
+                guard isMergeFailure(text.lowercased()),
+                      let recovered = YTDLPOutputParser.parseMeta(from: text) else {
+                    throw error
+                }
+                if let audioId = recovered.audioFormatId {
+                    try downloadSeparatelyAndMerge(
+                        url: url,
+                        videoFormatId: recovered.videoFormatId,
+                        audioFormatId: audioId,
+                        outputPath: tempOutput,
+                        useCookies: useCookies,
+                        onProgress: onProgress,
+                        onMerging: onMerging
+                    )
+                    choice = recovered
+                } else {
+                    throw error
+                }
             }
         }
 
@@ -518,11 +534,19 @@ public struct VideoDownloadPipeline: Sendable {
         return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)
     }
 
+    private func isExternalDownloaderFailure(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.contains("aria2")
+            || lower.contains("external downloader")
+            || (lower.contains("downloader") && lower.contains("not found"))
+    }
+
     private func downloadSortedOnce(
         url: String,
         adapter: SiteAdapterInfo,
         outputPath: String,
         useCookies: Bool,
+        useExternalDownloader: Bool = true,
         onProgress: (@Sendable (Double) -> Void)?,
         onMerging: (@Sendable () -> Void)?
     ) throws -> ParsedFormatChoice {
@@ -548,7 +572,8 @@ public struct VideoDownloadPipeline: Sendable {
             "--print", YTDLPOutputParser.metaPrintTemplate(),
             url
         ]
-        args.insert(contentsOf: adapter.extraArgs, at: args.count - 1)
+        let aria2c = useExternalDownloader ? aria2cPath : nil
+        args.insert(contentsOf: adapter.downloadArgs(aria2cPath: aria2c), at: args.count - 1)
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
         let result = try run(ytdlpPath, arguments: args, onOutput: { line in
             captured.append(line)

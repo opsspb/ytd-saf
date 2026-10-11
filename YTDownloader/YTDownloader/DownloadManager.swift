@@ -192,7 +192,8 @@ class DownloadManager: ObservableObject {
                 ytdlpPath: paths.ytdlp,
                 ffmpegPath: paths.ffmpeg,
                 cookieMode: settings.cookieMode,
-                cookieFilePath: settings.cookieFilePath
+                cookieFilePath: settings.cookieFilePath,
+                aria2cPath: paths.aria2c
             )
             return try pipeline.downloadBySort(
                 url: url,

@@ -17,6 +17,33 @@ final class SiteAdapterTests: XCTestCase {
         XCTAssertEqual(adapter.formatSort, "res,fps,vbr,abr,proto:https")
         XCTAssertTrue(adapter.extraArgs.contains("--no-write-subs"))
         XCTAssertTrue(adapter.extraArgs.contains("--retries"))
+        XCTAssertEqual(adapter.concurrentFragments, 16)
+        XCTAssertTrue(adapter.wantsExternalDownloader)
+        XCTAssertEqual(adapter.externalDownloaderArgs, SiteAdapterRegistry.aria2cArgs)
+        XCTAssertEqual(SiteAdapterRegistry.aria2cArgs, "-j 16 -s 16 -x 16 -k 1M")
+    }
+
+    func testVKDownloadArgsAddAria2cAndConcurrentFragments() {
+        let withAria = SiteAdapterRegistry.vk.downloadArgs(aria2cPath: "/tmp/aria2c")
+        XCTAssertTrue(withAria.contains("--concurrent-fragments"))
+        XCTAssertTrue(withAria.contains("16"))
+        XCTAssertTrue(withAria.contains("--external-downloader"))
+        XCTAssertTrue(withAria.contains("/tmp/aria2c"))
+        XCTAssertTrue(withAria.contains("--external-downloader-args"))
+        XCTAssertTrue(withAria.contains("aria2c:-j 16 -s 16 -x 16 -k 1M"))
+        XCTAssertFalse(withAria.contains("-f"))
+        XCTAssertFalse(withAria.contains("-S"))
+
+        let withoutAria = SiteAdapterRegistry.vk.downloadArgs(aria2cPath: nil)
+        XCTAssertTrue(withoutAria.contains("--concurrent-fragments"))
+        XCTAssertFalse(withoutAria.contains("--external-downloader"))
+    }
+
+    func testYouTubeDownloadArgsStayEmptyEvenWithAria2c() {
+        let args = SiteAdapterRegistry.youtube.downloadArgs(aria2cPath: "/tmp/aria2c")
+        XCTAssertTrue(args.isEmpty)
+        XCTAssertNil(SiteAdapterRegistry.youtube.concurrentFragments)
+        XCTAssertFalse(SiteAdapterRegistry.youtube.wantsExternalDownloader)
     }
 
     func testVKComUsesSameAdapter() {

@@ -126,22 +126,56 @@ public struct SiteAdapterInfo: Equatable, Sendable {
     public let formatSpec: String?
     public let formatSort: String?
     public let extraArgs: [String]
+    public let concurrentFragments: Int?
+    public let wantsExternalDownloader: Bool
+    public let externalDownloaderArgs: String?
 
-    public init(site: SiteKind, formatSpec: String? = nil, formatSort: String? = nil, extraArgs: [String] = []) {
+    public init(
+        site: SiteKind,
+        formatSpec: String? = nil,
+        formatSort: String? = nil,
+        extraArgs: [String] = [],
+        concurrentFragments: Int? = nil,
+        wantsExternalDownloader: Bool = false,
+        externalDownloaderArgs: String? = nil
+    ) {
         self.site = site
         self.formatSpec = formatSpec
         self.formatSort = formatSort
         self.extraArgs = extraArgs
+        self.concurrentFragments = concurrentFragments
+        self.wantsExternalDownloader = wantsExternalDownloader
+        self.externalDownloaderArgs = externalDownloaderArgs
+    }
+
+    /// Speed-only flags. Never includes `-f` / `-S` — format choice stays on the sorter.
+    public func downloadArgs(aria2cPath: String?) -> [String] {
+        var args = extraArgs
+        if let concurrentFragments {
+            args += ["--concurrent-fragments", "\(concurrentFragments)"]
+        }
+        if wantsExternalDownloader, let aria2cPath, !aria2cPath.isEmpty {
+            args += ["--external-downloader", aria2cPath]
+            if let externalDownloaderArgs {
+                args += ["--external-downloader-args", "aria2c:\(externalDownloaderArgs)"]
+            }
+        }
+        return args
     }
 }
 
 public enum SiteAdapterRegistry {
+    public static let aria2cArgs = "-j 16 -s 16 -x 16 -k 1M"
+
     public static let youtube = SiteAdapterInfo(site: .youtube)
     public static let vk = SiteAdapterInfo(
         site: .vk,
         formatSpec: "bv*+ba/b",
         formatSort: "res,fps,vbr,abr,proto:https",
-        extraArgs: ["--no-write-subs", "--retries", "3", "--fragment-retries", "5"]
+        extraArgs: ["--no-write-subs", "--retries", "3", "--fragment-retries", "5"],
+        concurrentFragments: 16,
+        wantsExternalDownloader: true,
+        externalDownloaderArgs: aria2cArgs
     )
 
     public static func adapter(for url: String) -> SiteAdapterInfo {
