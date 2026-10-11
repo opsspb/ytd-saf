@@ -129,8 +129,13 @@ public struct VideoDownloadPipeline: Sendable {
         }
     }
 
-    /// Lets yt-dlp download the chosen video+audio formats and remux them to MKV.
-    /// HLS/mpegts streams are remuxed to MP4 first so ffmpeg 9 can mux timestamps.
+    /// Downloads video+audio and writes a single MKV.
+    ///
+    /// yt-dlp's Merger (`ffmpeg -c copy` into matroska) fails on native HLS
+    /// mpegts with ffmpeg 9 ("Can't write packet with unknown timestamp").
+    /// HLS (or any mpegts) is remuxed to MP4 first, then merged. Work files
+    /// stay in a temp directory so `~/Downloads` only gets the final MKV.
+    /// `fallbackVideoFormatIds` are same-res/fps next-bitrate candidates.
     public func downloadMerged(
         url: String,
         videoFormatId: String,
@@ -138,9 +143,56 @@ public struct VideoDownloadPipeline: Sendable {
         outputPath: String,
         useCookies: Bool,
         videoProtocol: String? = nil,
+        fallbackVideoFormatIds: [String] = [],
         fallbackSpec: String? = "bestvideo*+bestaudio/best",
         onProgress: (@Sendable (Double) -> Void)? = nil,
         onMerging: (@Sendable () -> Void)? = nil
+    ) throws {
+        defer { removeMergeSidecars(outputPath: outputPath) }
+
+        var candidates = [videoFormatId]
+        for extra in fallbackVideoFormatIds where extra != videoFormatId && !candidates.contains(extra) {
+            candidates.append(extra)
+        }
+
+        var lastError: Error = DownloadError.downloadFailed("No format available")
+        for (index, candidate) in candidates.enumerated() {
+            do {
+                try downloadOneMergedPair(
+                    url: url,
+                    videoFormatId: candidate,
+                    audioFormatId: audioFormatId,
+                    outputPath: outputPath,
+                    useCookies: useCookies,
+                    videoProtocol: index == 0 ? videoProtocol : nil,
+                    fallbackSpec: index == 0 ? fallbackSpec : nil,
+                    onProgress: onProgress,
+                    onMerging: onMerging
+                )
+                return
+            } catch {
+                lastError = error
+                let text = (error as? LocalizedError)?.errorDescription?.lowercased() ?? "\(error)".lowercased()
+                removeMergeSidecars(outputPath: outputPath)
+                if isMergeFailure(text) || text.contains("format is not available") || text.contains("requested format") {
+                    continue
+                }
+                throw error
+            }
+        }
+        throw lastError
+    }
+
+    private func downloadOneMergedPair(
+        url: String,
+        videoFormatId: String,
+        audioFormatId: String,
+        outputPath: String,
+        useCookies: Bool,
+        videoProtocol: String?,
+        fallbackSpec: String?,
+        onProgress: (@Sendable (Double) -> Void)?,
+        onMerging: (@Sendable () -> Void)?
     ) throws {
         if isHLSProtocol(videoProtocol) {
             try downloadSeparatelyAndMerge(
@@ -155,6 +207,11 @@ public struct VideoDownloadPipeline: Sendable {
             return
         }
 
+        let workDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-merge-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDir) }
+        let tempOutput = workDir.appendingPathComponent("merged.mkv").path
+
         var lastError: Error = DownloadError.downloadFailed("No format available")
         var specs = ["\(videoFormatId)+\(audioFormatId)"]
         if let fallbackSpec, fallbackSpec != specs[0] {
@@ -165,11 +222,12 @@ public struct VideoDownloadPipeline: Sendable {
                 try downloadMergedOnce(
                     url: url,
                     formatSpec: spec,
-                    outputPath: outputPath,
+                    outputPath: tempOutput,
                     useCookies: useCookies,
                     onProgress: onProgress,
                     onMerging: onMerging
                 )
+                try installFinalOutput(from: tempOutput, to: outputPath)
                 return
             } catch {
                 lastError = error
@@ -178,7 +236,6 @@ public struct VideoDownloadPipeline: Sendable {
                     continue
                 }
                 if isMergeFailure(text) {
-                    removeMergeSidecars(outputPath: outputPath)
                     try downloadSeparatelyAndMerge(
                         url: url,
                         videoFormatId: videoFormatId,
@@ -194,6 +251,13 @@ public struct VideoDownloadPipeline: Sendable {
             }
         }
         throw lastError
+    }
+
+    private func installFinalOutput(from tempOutput: String, to outputPath: String) throws {
+        if FileManager.default.fileExists(atPath: outputPath) {
+            try FileManager.default.removeItem(atPath: outputPath)
+        }
+        try FileManager.default.copyItem(atPath: tempOutput, toPath: outputPath)
     }
 
     private func downloadMergedOnce(
@@ -311,6 +375,10 @@ public struct VideoDownloadPipeline: Sendable {
             || text.contains("postprocessing")
     }
 
+    public func cleanupMergeSidecars(around outputPath: String) {
+        removeMergeSidecars(outputPath: outputPath)
+    }
+
     private func removeMergeSidecars(outputPath: String) {
         let url = URL(fileURLWithPath: outputPath)
         let directory = url.deletingLastPathComponent()
@@ -330,7 +398,11 @@ public struct VideoDownloadPipeline: Sendable {
         try FileManager.default.createDirectory(atPath: outputDirectory, withIntermediateDirectories: true)
         let formatList = try listFormats(url: url)
         let info = try fetchInfo(url: url, useCookies: useCookies)
-        let formats = try FormatSelector().selectBestFormats(from: info)
+        let selector = FormatSelector()
+        let formats = try selector.selectBestFormats(from: info)
+        let fallbackIds = selector.sameResolutionRung(as: formats.video, from: info)
+            .map(\.formatId)
+            .filter { $0 != formats.video.formatId }
 
         let outputFile = (outputDirectory as NSString).appendingPathComponent(
             OutputFilename.make(title: info.title, videoId: info.id)
@@ -341,7 +413,8 @@ public struct VideoDownloadPipeline: Sendable {
             audioFormatId: formats.audio.formatId,
             outputPath: outputFile,
             useCookies: useCookies,
-            videoProtocol: formats.video.protocolName
+            videoProtocol: formats.video.protocolName,
+            fallbackVideoFormatIds: fallbackIds
         )
 
         return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)

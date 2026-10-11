@@ -130,7 +130,10 @@ class DownloadManager: ObservableObject {
                 )
                 let info = try pipeline.fetchInfo(url: item.url, useCookies: false)
                 let formats = try formatSelector.selectBestFormats(from: info)
-                return (pipeline, info, formats)
+                let fallbackIds = formatSelector.sameResolutionRung(as: formats.video, from: info)
+                    .map(\.formatId)
+                    .filter { $0 != formats.video.formatId }
+                return (pipeline, info, formats, fallbackIds)
             }.value
 
             updateTitle(id: item.id, title: result.1.title)
@@ -139,7 +142,8 @@ class DownloadManager: ObservableObject {
                 item: item,
                 info: result.1,
                 formats: result.2,
-                pipeline: result.0
+                pipeline: result.0,
+                fallbackVideoFormatIds: result.3
             )
         } catch let error as DownloadError where error.requiresCookies {
             await retryWithCookies(item: item, error: error)
@@ -171,7 +175,10 @@ class DownloadManager: ObservableObject {
                 )
                 let info = try pipeline.fetchInfo(url: item.url, useCookies: true)
                 let formats = try formatSelector.selectBestFormats(from: info)
-                return (pipeline, info, formats)
+                let fallbackIds = formatSelector.sameResolutionRung(as: formats.video, from: info)
+                    .map(\.formatId)
+                    .filter { $0 != formats.video.formatId }
+                return (pipeline, info, formats, fallbackIds)
             }.value
 
             try await downloadAndMerge(
@@ -179,7 +186,8 @@ class DownloadManager: ObservableObject {
                 info: result.1,
                 formats: result.2,
                 pipeline: result.0,
-                useCookies: true
+                useCookies: true,
+                fallbackVideoFormatIds: result.3
             )
         } catch {
             let downloadError = error as? DownloadError ?? .unknown(error.localizedDescription)
@@ -215,7 +223,8 @@ class DownloadManager: ObservableObject {
         info: YTDLPInfo,
         formats: SelectedFormats,
         pipeline: VideoDownloadPipeline,
-        useCookies: Bool = false
+        useCookies: Bool = false,
+        fallbackVideoFormatIds: [String] = []
     ) async throws {
         let downloadDir = (settings.downloadDirectory as NSString).expandingTildeInPath
         let itemID = item.id
@@ -234,6 +243,7 @@ class DownloadManager: ObservableObject {
                 outputPath: outputFile,
                 useCookies: useCookies,
                 videoProtocol: formats.video.protocolName,
+                fallbackVideoFormatIds: fallbackVideoFormatIds,
                 onProgress: { progress in
                     Task { @MainActor in
                         DownloadProgressBridge.shared.update(id: itemID, fraction: progress)

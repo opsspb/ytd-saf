@@ -19,14 +19,28 @@ public struct FormatSelector {
             throw DownloadError.noSuitableFormats
         }
         
-        let bestVideo = selectBestVideo(from: videoFormats)
+        let bestVideo = rankedVideoFormats(videoFormats)[0]
         let bestAudio = selectBestAudio(from: audioFormats)
         
         return SelectedFormats(video: bestVideo, audio: bestAudio)
     }
-    
-    private func selectBestVideo(from formats: [VideoFormat]) -> VideoFormat {
-        let sorted = formats.sorted { format1, format2 in
+
+    /// Video formats ordered by res > fps > bitrate > protocol.
+    public func rankedVideoFormats(from info: YTDLPInfo) -> [VideoFormat] {
+        rankedVideoFormats(info.formats.filter { isDownloadableVideo($0) })
+    }
+
+    /// Same height and fps as `video`, already sorted best-first (next bitrate after a merge failure).
+    public func sameResolutionRung(as video: VideoFormat, from info: YTDLPInfo) -> [VideoFormat] {
+        let height = resolvedHeight(video)
+        let fps = video.fps ?? 0
+        return rankedVideoFormats(from: info).filter {
+            resolvedHeight($0) == height && ($0.fps ?? 0) == fps
+        }
+    }
+
+    private func rankedVideoFormats(_ formats: [VideoFormat]) -> [VideoFormat] {
+        formats.sorted { format1, format2 in
             let height1 = resolvedHeight(format1)
             let height2 = resolvedHeight(format2)
             
@@ -49,8 +63,6 @@ public struct FormatSelector {
 
             return protocolQuality(format1) > protocolQuality(format2)
         }
-        
-        return sorted[0]
     }
     
     private func selectBestAudio(from formats: [VideoFormat]) -> VideoFormat {

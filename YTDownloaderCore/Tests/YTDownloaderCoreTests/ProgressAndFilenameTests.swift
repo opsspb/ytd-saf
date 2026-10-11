@@ -32,6 +32,28 @@ final class ProgressAndFilenameTests: XCTestCase {
         XCTAssertTrue(result.timedOut)
     }
 
+    func testCleansYtDlpSidecarsAroundOutput() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-sidecar-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mkv = dir.appendingPathComponent("I AM WAR._E8e_Y4yLdd0.mkv")
+        let sidecars = [
+            dir.appendingPathComponent("I AM WAR._E8e_Y4yLdd0.f230.mp4"),
+            dir.appendingPathComponent("I AM WAR._E8e_Y4yLdd0.f140.m4a"),
+            dir.appendingPathComponent("I AM WAR._E8e_Y4yLdd0.temp.mkv")
+        ]
+        try Data("mkv".utf8).write(to: mkv)
+        for url in sidecars {
+            try Data("partial".utf8).write(to: url)
+        }
+        let pipeline = VideoDownloadPipeline(ytdlpPath: "/bin/echo", ffmpegPath: "/bin/echo")
+        pipeline.cleanupMergeSidecars(around: mkv.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mkv.path))
+        for url in sidecars {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), url.lastPathComponent)
+        }
+    }
+
     func testDetectsHLSProtocolForRemuxPath() {
         let pipeline = VideoDownloadPipeline(ytdlpPath: "/bin/echo", ffmpegPath: "/bin/echo")
         XCTAssertTrue(pipeline.isHLSProtocol("m3u8_native"))

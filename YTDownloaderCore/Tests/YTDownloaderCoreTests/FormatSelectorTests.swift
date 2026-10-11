@@ -222,6 +222,11 @@ final class FormatSelectorTests: XCTestCase {
         XCTAssertGreaterThan(selected.video.vbr ?? 0, 200)
         XCTAssertEqual(selected.audio.formatId, "140")
         XCTAssertEqual(selected.audio.protocolName, "https")
+        let rung = selector.sameResolutionRung(as: selected.video, from: info)
+        XCTAssertEqual(rung.first?.formatId, "230")
+        XCTAssertTrue(rung.map(\.formatId).contains("133"))
+        XCTAssertGreaterThan(rung.count, 1)
+        XCTAssertTrue(rung.allSatisfy { $0.height == 240 })
     }
 
     func testDecodesProtocolFromJSON() throws {
