@@ -22,13 +22,14 @@ struct YTDownloaderApp: App {
                 .onOpenURL { url in
                     NativeMessaging.shared.handle(url: url)
                 }
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
                 .task {
                     await binaryManager.setup()
                     downloadManager.resumeQueue()
                 }
         }
         .defaultSize(width: 860, height: 560)
-        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+        .handlesExternalEvents(matching: ["*"])
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About YTDownloader") {}
