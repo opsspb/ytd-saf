@@ -101,7 +101,7 @@
 				AA0000010000000000000023 /* Info.plist */,
 				AA0000010000000000000181 /* Resources */,
 			);
-			path = YTDownloader;
+			path = "YTDownloader/YTDownloader";
 			sourceTree = "<group>";
 		};
 		AA0000010000000000000172 /* YTDownloaderExtension */ = {
@@ -112,7 +112,7 @@
 				AA0000010000000000000126 /* Info.plist */,
 				AA0000010000000000000182 /* Resources */,
 			);
-			path = YTDownloaderExtension;
+			path = "YTDownloader/YTDownloaderExtension";
 			sourceTree = "<group>";
 		};
 		AA0000010000000000000173 /* Products */ = {
@@ -420,14 +420,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = YTDownloader/YTDownloader.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "YTDownloader/YTDownloader/YTDownloader.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = YTDownloader/Info.plist;
+				INFOPLIST_FILE = "YTDownloader/YTDownloader/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = YTDownloader;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Pavel Osmolovskii";
@@ -447,14 +447,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = YTDownloader/YTDownloader.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "YTDownloader/YTDownloader/YTDownloader.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = YTDownloader/Info.plist;
+				INFOPLIST_FILE = "YTDownloader/YTDownloader/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = YTDownloader;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Pavel Osmolovskii";
@@ -473,12 +473,12 @@
 		AA0000010000000000000321 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = YTDownloaderExtension/YTDownloaderExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "YTDownloader/YTDownloaderExtension/YTDownloaderExtension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = YTDownloaderExtension/Info.plist;
+				INFOPLIST_FILE = "YTDownloader/YTDownloaderExtension/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "YTDownloader Extension";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Pavel Osmolovskii";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -498,12 +498,12 @@
 		AA0000010000000000000322 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = YTDownloaderExtension/YTDownloaderExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "YTDownloader/YTDownloaderExtension/YTDownloaderExtension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = YTDownloaderExtension/Info.plist;
+				INFOPLIST_FILE = "YTDownloader/YTDownloaderExtension/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "YTDownloader Extension";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Pavel Osmolovskii";
 				LD_RUNPATH_SEARCH_PATHS = (
