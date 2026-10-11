@@ -119,11 +119,11 @@ public enum DownloadStatus: String, Codable {
     case failed
 }
 
-public struct DownloadItem: Codable, Identifiable, Equatable {
+public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
     public let id: UUID
     public let videoId: String
     public let url: String
-    public let title: String?
+    public var title: String?
     public var status: DownloadStatus
     public var progress: Double
     public var error: String?
