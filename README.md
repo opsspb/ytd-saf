@@ -123,8 +123,8 @@ If you enable Safari cookie mode:
 ┌─────────────────┐         ┌──────────────────┐
 │  Safari Web     │         │   Native macOS   │
 │   Extension     │◄───────►│       App        │
-│                 │  Native │                  │
-│  - Content JS   │Messages │  - SwiftUI       │
+│                 │  URL    │                  │
+│  - Content JS   │ Scheme  │  - SwiftUI       │
 │  - Background   │         │  - Download      │
 │    Worker       │         │    Manager       │
 └─────────────────┘         │  - yt-dlp        │
@@ -134,10 +134,13 @@ If you enable Safari cookie mode:
 
 1. **Content script** (`content.js`) injects YD buttons on YouTube pages
 2. **Background worker** (`background.js`) handles messages from buttons
-3. **Native messaging** sends download requests to the macOS app via `DistributedNotificationCenter`
-4. **Download Manager** queues downloads and orchestrates yt-dlp/ffmpeg
-5. **Format Selector** parses yt-dlp JSON and picks optimal formats
-6. **Binary Manager** ensures yt-dlp and ffmpeg are available
+3. **SafariWebExtensionHandler** receives messages and opens custom URL (`ytdownloader://download?videoId=...&url=...`)
+4. **NativeMessaging** handles URL scheme events via `NSAppleEventManager`
+5. **Download Manager** queues downloads and orchestrates yt-dlp/ffmpeg
+6. **Format Selector** parses yt-dlp JSON and picks optimal formats
+7. **Binary Manager** ensures yt-dlp and ffmpeg are available
+
+**Why URL Scheme?** This architecture works with **free Apple Developer accounts** (no paid subscription needed). App Groups require explicit App IDs which are only available with paid accounts. The URL scheme approach is equally secure and works for both free signing (for personal use) and paid signing (for distribution).
 
 ### Format Selection Logic
 
