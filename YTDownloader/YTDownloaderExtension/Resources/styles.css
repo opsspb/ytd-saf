@@ -13,11 +13,43 @@
     cursor: not-allowed;
 }
 
-.ytd-thumbnail-button:hover {
-    background: rgba(0, 0, 0, 0.9) !important;
-    transform: scale(1.05);
+/* Card download buttons - theme-aware */
+.ytd-card-download-button {
+    --yt-spec-badge-chip-background: rgba(0, 0, 0, 0.05);
+    --yt-spec-badge-chip-background-hover: rgba(0, 0, 0, 0.1);
+    --yt-spec-text-primary: #0f0f0f;
+    --yt-spec-10-percent-layer: rgba(0, 0, 0, 0.1);
 }
 
-.ytd-thumbnail-button:active {
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+    .ytd-card-download-button {
+        --yt-spec-badge-chip-background: rgba(255, 255, 255, 0.1);
+        --yt-spec-badge-chip-background-hover: rgba(255, 255, 255, 0.2);
+        --yt-spec-text-primary: #f1f1f1;
+        --yt-spec-10-percent-layer: rgba(255, 255, 255, 0.1);
+    }
+}
+
+/* YouTube dark mode class */
+html[dark] .ytd-card-download-button,
+html[system-icons] .ytd-card-download-button {
+    --yt-spec-badge-chip-background: rgba(255, 255, 255, 0.1);
+    --yt-spec-badge-chip-background-hover: rgba(255, 255, 255, 0.2);
+    --yt-spec-text-primary: #f1f1f1;
+    --yt-spec-10-percent-layer: rgba(255, 255, 255, 0.1);
+}
+
+.ytd-card-download-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.ytd-card-download-button:active {
     transform: scale(0.95);
+}
+
+.ytd-card-button-container {
+    isolation: isolate;
+    position: relative;
 }

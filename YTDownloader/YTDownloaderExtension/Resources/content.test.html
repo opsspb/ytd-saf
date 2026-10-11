@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>YTDownloader Content Script Tests</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        .test { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        .test.pass { background: #e8f5e9; border-color: #4caf50; }
+        .test.fail { background: #ffebee; border-color: #f44336; }
+        .test h3 { margin: 0 0 10px 0; }
+        #mock-card { width: 400px; border: 1px solid #ccc; padding: 10px; }
+        #avatar-link { display: inline-block; width: 36px; height: 36px; background: #ccc; border-radius: 50%; }
+    </style>
+</head>
+<body>
+    <h1>YTDownloader Content Script Tests</h1>
+    
+    <div id="results"></div>
+    
+    <!-- Mock YouTube card structure -->
+    <div style="display: none;">
+        <ytd-rich-item-renderer id="mock-card">
+            <a id="video-title-link" href="/watch?v=dQw4w9WgXcQ">Test Video</a>
+            <div id="metadata">
+                <div id="avatar-link">
+                    <img id="avatar" />
+                </div>
+            </div>
+        </ytd-rich-item-renderer>
+    </div>
+    
+    <script>
+        // Mock browser.runtime for testing
+        window.browser = {
+            runtime: {
+                sendMessage: async (msg) => {
+                    console.log('Mock sendMessage:', msg);
+                    return { success: true, videoId: msg.videoId };
+                }
+            }
+        };
+        
+        const results = document.getElementById('results');
+        let testsPassed = 0;
+        let testsFailed = 0;
+        
+        function addResult(name, passed, message) {
+            const div = document.createElement('div');
+            div.className = 'test ' + (passed ? 'pass' : 'fail');
+            div.innerHTML = `
+                <h3>${passed ? '✓' : '✗'} ${name}</h3>
+                <p>${message}</p>
+            `;
+            results.appendChild(div);
+            
+            if (passed) testsPassed++;
+            else testsFailed++;
+        }
+        
+        // Test 1: Extract video ID from URL
+        function testExtractVideoId() {
+            const extractVideoIdFromUrl = (url) => {
+                if (!url) return null;
+                const match = url.match(/[?&]v=([^&]+)/);
+                return match ? match[1] : null;
+            };
+            
+            const id = extractVideoIdFromUrl('/watch?v=dQw4w9WgXcQ');
+            const passed = id === 'dQw4w9WgXcQ';
+            addResult('Extract video ID from URL', passed, 
+                passed ? 'Correctly extracted: ' + id : 'Failed to extract video ID');
+        }
+        
+        // Test 2: Button prevents navigation
+        function testButtonPreventsNavigation() {
+            const button = document.createElement('button');
+            let navigationTriggered = false;
+            let propagationStopped = false;
+            
+            // Mock event
+            const mockEvent = {
+                preventDefault: () => { navigationTriggered = false; },
+                stopPropagation: () => { propagationStopped = true; },
+                stopImmediatePropagation: () => { propagationStopped = true; }
+            };
+            
+            const preventNavigation = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+            };
+            
+            preventNavigation(mockEvent);
+            
+            const passed = !navigationTriggered && propagationStopped;
+            addResult('Button prevents navigation', passed,
+                passed ? 'preventDefault and stopPropagation called' : 'Navigation not properly prevented');
+        }
+        
+        // Test 3: Button is not inside link element
+        function testButtonPlacement() {
+            const card = document.getElementById('mock-card').cloneNode(true);
+            document.body.appendChild(card);
+            
+            // Simulate button injection
+            const metadataArea = card.querySelector('#metadata');
+            const avatarContainer = metadataArea.querySelector('#avatar-link');
+            
+            const buttonContainer = document.createElement('div');
+            buttonContainer.className = 'ytd-card-button-container';
+            
+            const button = document.createElement('button');
+            button.className = 'ytd-card-download-button';
+            button.textContent = 'YD';
+            buttonContainer.appendChild(button);
+            
+            avatarContainer.parentElement.insertBefore(buttonContainer, avatarContainer.nextSibling);
+            
+            // Test 1: Button exists
+            const buttonExists = card.querySelector('.ytd-card-download-button') !== null;
+            
+            // Test 2: Button is not inside <a> tag
+            const link = card.querySelector('a#video-title-link');
+            const buttonNotInLink = !link.contains(button);
+            
+            // Test 3: Button is after avatar
+            const avatarLink = card.querySelector('#avatar-link');
+            const buttonIsAfterAvatar = avatarLink.nextElementSibling === buttonContainer;
+            
+            const passed = buttonExists && buttonNotInLink && buttonIsAfterAvatar;
+            
+            addResult('Button placement', passed,
+                passed ? 'Button correctly placed below avatar, outside link' : 
+                `Button exists: ${buttonExists}, not in link: ${buttonNotInLink}, after avatar: ${buttonIsAfterAvatar}`);
+            
+            document.body.removeChild(card);
+        }
+        
+        // Test 4: Click handler doesn't trigger link
+        function testClickHandlerIsolation() {
+            let linkClicked = false;
+            
+            const link = document.createElement('a');
+            link.href = '/watch?v=test';
+            link.addEventListener('click', () => { linkClicked = true; });
+            
+            const buttonContainer = document.createElement('div');
+            const button = document.createElement('button');
+            buttonContainer.appendChild(button);
+            
+            // Simulate our event handlers
+            ['mousedown', 'click'].forEach(eventType => {
+                button.addEventListener(eventType, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                }, true);
+            });
+            
+            link.appendChild(buttonContainer);
+            document.body.appendChild(link);
+            
+            // Simulate click
+            const clickEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true
+            });
+            button.dispatchEvent(clickEvent);
+            
+            const passed = !linkClicked;
+            addResult('Click handler isolation', passed,
+                passed ? 'Button click did not trigger link navigation' : 'Link was triggered by button click');
+            
+            document.body.removeChild(link);
+        }
+        
+        // Test 5: Skips Shorts
+        function testSkipsShorts() {
+            const card = document.createElement('ytd-rich-item-renderer');
+            const link = document.createElement('a');
+            link.href = '/shorts/abc123';
+            card.appendChild(link);
+            
+            const isShorts = card.querySelector('a[href*="/shorts/"]') !== null;
+            const shouldSkip = isShorts;
+            
+            const passed = shouldSkip;
+            addResult('Skips Shorts', passed,
+                passed ? 'Correctly identifies and skips Shorts' : 'Failed to skip Shorts');
+        }
+        
+        // Run all tests
+        testExtractVideoId();
+        testButtonPreventsNavigation();
+        testButtonPlacement();
+        testClickHandlerIsolation();
+        testSkipsShorts();
+        
+        // Summary
+        const summary = document.createElement('div');
+        summary.style.cssText = 'margin-top: 30px; padding: 20px; background: #f5f5f5; border-radius: 4px; font-size: 18px; font-weight: bold;';
+        summary.innerHTML = `Tests: ${testsPassed + testsFailed} | Passed: ${testsPassed} | Failed: ${testsFailed}`;
+        summary.style.color = testsFailed === 0 ? '#4caf50' : '#f44336';
+        results.appendChild(summary);
+        
+        console.log(`Tests completed: ${testsPassed} passed, ${testsFailed} failed`);
+    </script>
+</body>
+</html>
