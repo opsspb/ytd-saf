@@ -1,0 +1,118 @@
+{
+  "id": "test_video_1",
+  "title": "Test 4K HDR Video with Multiple Audio Tracks",
+  "webpage_url": "https://www.youtube.com/watch?v=test_video_1",
+  "original_url": "https://www.youtube.com/watch?v=test_video_1",
+  "formats": [
+    {
+      "format_id": "701",
+      "ext": "mp4",
+      "width": 3840,
+      "height": 2160,
+      "fps": 60,
+      "vcodec": "av01.0.12M.08",
+      "acodec": "none",
+      "vbr": 15000,
+      "resolution": "3840x2160",
+      "format_note": "2160p60 HDR"
+    },
+    {
+      "format_id": "337",
+      "ext": "webm",
+      "width": 3840,
+      "height": 2160,
+      "fps": 60,
+      "vcodec": "vp9.2",
+      "acodec": "none",
+      "vbr": 14500,
+      "resolution": "3840x2160",
+      "format_note": "2160p60 HDR"
+    },
+    {
+      "format_id": "315",
+      "ext": "webm",
+      "width": 3840,
+      "height": 2160,
+      "fps": 30,
+      "vcodec": "vp9",
+      "acodec": "none",
+      "vbr": 12000,
+      "resolution": "3840x2160",
+      "format_note": "2160p"
+    },
+    {
+      "format_id": "308",
+      "ext": "webm",
+      "width": 2560,
+      "height": 1440,
+      "fps": 60,
+      "vcodec": "vp9",
+      "acodec": "none",
+      "vbr": 9000,
+      "resolution": "2560x1440",
+      "format_note": "1440p60"
+    },
+    {
+      "format_id": "299",
+      "ext": "mp4",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "vcodec": "avc1.64002a",
+      "acodec": "none",
+      "vbr": 5500,
+      "resolution": "1920x1080",
+      "format_note": "1080p60"
+    },
+    {
+      "format_id": "251",
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "abr": 160,
+      "language": "en",
+      "language_preference": 10,
+      "format_note": "Original audio"
+    },
+    {
+      "format_id": "250",
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "abr": 70,
+      "language": "en",
+      "language_preference": 10,
+      "format_note": "Original audio"
+    },
+    {
+      "format_id": "140",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "abr": 128,
+      "language": "en",
+      "language_preference": 10,
+      "format_note": "Original audio"
+    },
+    {
+      "format_id": "251-es",
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "abr": 160,
+      "language": "es",
+      "language_preference": -1,
+      "format_note": "Dubbed audio (Spanish)"
+    },
+    {
+      "format_id": "251-ja",
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "abr": 160,
+      "language": "ja",
+      "language_preference": -1,
+      "format_note": "Dubbed audio (Japanese)"
+    }
+  ]
+}

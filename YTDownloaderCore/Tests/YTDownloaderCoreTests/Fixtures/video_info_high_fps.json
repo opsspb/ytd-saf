@@ -1,0 +1,53 @@
+{
+  "id": "test_video_2",
+  "title": "High FPS Gaming Video",
+  "webpage_url": "https://www.youtube.com/watch?v=test_video_2",
+  "original_url": "https://www.youtube.com/watch?v=test_video_2",
+  "formats": [
+    {
+      "format_id": "303",
+      "ext": "webm",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "vcodec": "vp9",
+      "acodec": "none",
+      "vbr": 5000,
+      "resolution": "1920x1080",
+      "format_note": "1080p60"
+    },
+    {
+      "format_id": "302",
+      "ext": "webm",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "vcodec": "vp9",
+      "acodec": "none",
+      "vbr": 4800,
+      "resolution": "1920x1080",
+      "format_note": "1080p"
+    },
+    {
+      "format_id": "248",
+      "ext": "webm",
+      "width": 1920,
+      "height": 1080,
+      "fps": 25,
+      "vcodec": "vp9",
+      "acodec": "none",
+      "vbr": 2500,
+      "resolution": "1920x1080",
+      "format_note": "1080p"
+    },
+    {
+      "format_id": "251",
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "abr": 160,
+      "language": "en",
+      "language_preference": 10
+    }
+  ]
+}

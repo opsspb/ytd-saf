@@ -60,3 +60,8 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Icons are now committed, but can be regenerated with ./generate_icons.sh or generate_icons_python.py
+
+# App data
+DerivedData/
