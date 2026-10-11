@@ -611,11 +611,32 @@ public struct DownloadSettings: Codable, Equatable {
     public var cookieMode: CookieMode
     public var cookieFilePath: String?
     public var maxConcurrentDownloads: Int
-    
-    public init(downloadDirectory: String = "~/Downloads", cookieMode: CookieMode = .none, cookieFilePath: String? = nil, maxConcurrentDownloads: Int = 1) {
+    public var showWindowOnDownloadStart: Bool
+    public var launchAtLogin: Bool
+
+    public init(
+        downloadDirectory: String = "~/Downloads",
+        cookieMode: CookieMode = .none,
+        cookieFilePath: String? = nil,
+        maxConcurrentDownloads: Int = 1,
+        showWindowOnDownloadStart: Bool = false,
+        launchAtLogin: Bool = false
+    ) {
         self.downloadDirectory = downloadDirectory
         self.cookieMode = cookieMode
         self.cookieFilePath = cookieFilePath
         self.maxConcurrentDownloads = maxConcurrentDownloads
+        self.showWindowOnDownloadStart = showWindowOnDownloadStart
+        self.launchAtLogin = launchAtLogin
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        downloadDirectory = try container.decodeIfPresent(String.self, forKey: .downloadDirectory) ?? "~/Downloads"
+        cookieMode = try container.decodeIfPresent(CookieMode.self, forKey: .cookieMode) ?? .none
+        cookieFilePath = try container.decodeIfPresent(String.self, forKey: .cookieFilePath)
+        maxConcurrentDownloads = try container.decodeIfPresent(Int.self, forKey: .maxConcurrentDownloads) ?? 1
+        showWindowOnDownloadStart = try container.decodeIfPresent(Bool.self, forKey: .showWindowOnDownloadStart) ?? false
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
     }
 }

@@ -74,6 +74,7 @@ class DownloadManager: ObservableObject {
             queue[index] = item
             saveQueue()
             processQueue()
+            NotificationCenter.default.post(name: .ytdDownloadDidEnqueue, object: nil)
             return
         }
 
@@ -86,6 +87,7 @@ class DownloadManager: ObservableObject {
         queue.append(item)
         saveQueue()
         processQueue()
+        NotificationCenter.default.post(name: .ytdDownloadDidEnqueue, object: nil)
     }
 
     func updateItemStatus(

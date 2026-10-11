@@ -7,7 +7,10 @@ struct SettingsView: View {
     @State private var cookieMode: CookieMode = .none
     @State private var cookieFilePath: String = ""
     @State private var maxConcurrentDownloads: Int = 1
-    
+    @State private var showWindowOnDownloadStart = false
+    @State private var launchAtLogin = false
+    @State private var launchAtLoginError: String?
+
     var body: some View {
         Form {
             Section("Download Location") {
@@ -59,6 +62,23 @@ struct SettingsView: View {
             Section("Performance") {
                 Stepper("Concurrent Downloads: \(maxConcurrentDownloads)", value: $maxConcurrentDownloads, in: 1...5)
             }
+
+            Section("Menu Bar") {
+                Toggle("Show window when a download starts", isOn: $showWindowOnDownloadStart)
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { enabled in
+                        launchAtLoginError = LaunchAtLogin.setEnabled(enabled)
+                        launchAtLogin = LaunchAtLogin.isEnabled
+                    }
+                if let launchAtLoginError {
+                    Text(launchAtLoginError)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                Text("The queue stays hidden until you click the YD menu-bar icon, unless the toggle above is on.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
             
             Section {
                 Button("Save Settings") {
@@ -68,7 +88,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 520)
         .onAppear {
             loadSettings()
         }
@@ -79,6 +99,8 @@ struct SettingsView: View {
         cookieMode = downloadManager.settings.cookieMode
         cookieFilePath = downloadManager.settings.cookieFilePath ?? ""
         maxConcurrentDownloads = downloadManager.settings.maxConcurrentDownloads
+        showWindowOnDownloadStart = downloadManager.settings.showWindowOnDownloadStart
+        launchAtLogin = LaunchAtLogin.isEnabled
     }
     
     private func saveSettings() {
@@ -86,7 +108,9 @@ struct SettingsView: View {
         downloadManager.settings.cookieMode = cookieMode
         downloadManager.settings.cookieFilePath = cookieFilePath.isEmpty ? nil : cookieFilePath
         downloadManager.settings.maxConcurrentDownloads = maxConcurrentDownloads
-        
+        downloadManager.settings.showWindowOnDownloadStart = showWindowOnDownloadStart
+        downloadManager.settings.launchAtLogin = LaunchAtLogin.isEnabled
+
         downloadManager.saveSettings()
     }
     
