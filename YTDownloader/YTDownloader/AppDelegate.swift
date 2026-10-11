@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(windowBecameVisible(_:)),
-            name: NSWindow.didBecomeVisibleNotification,
+            name: Notification.Name("NSWindowDidBecomeVisibleNotification"),
             object: nil
         )
     }
