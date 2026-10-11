@@ -14,23 +14,31 @@ class DownloadManager: ObservableObject {
     private var activeDownloads = 0
     private var retryStates: [UUID: RetryState] = [:]
     private var lastProgressSave = Date.distantPast
+    private var cancellations: [UUID: ProcessCancellation] = [:]
+    private let supportDirectory: URL
     private let queueFile: URL
+    private let settingsFile: URL
+    private static let fixtureVideoIDs: Set<String> = [
+        "clickIsoVid", "lockupVid12", "modernWatch1"
+    ]
 
     var selectedItem: DownloadItem? {
         guard let selectedItemID else { return nil }
         return queue.first(where: { $0.id == selectedItemID })
     }
 
-    init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let appFolder = appSupport.appendingPathComponent("YTDownloader")
-        try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
-        queueFile = appFolder.appendingPathComponent("queue.json")
+    init(supportDirectory: URL? = nil) {
+        let root = supportDirectory ?? AppSupport.directory()
+        self.supportDirectory = root
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        queueFile = AppSupport.queueFile(in: root)
+        settingsFile = AppSupport.settingsFile(in: root)
         loadSettings()
         loadQueue()
     }
 
     func addDownload(videoId: String, url: String) {
+        if Self.fixtureVideoIDs.contains(videoId) { return }
         var resolvedId = videoId
         var resolvedURL = url
         if let ref = SiteURL.resolve(url) {
@@ -69,7 +77,12 @@ class DownloadManager: ObservableObject {
             return
         }
 
-        let item = DownloadItem(videoId: resolvedId, url: resolvedURL)
+        let item = DownloadItem(
+            videoId: resolvedId,
+            url: resolvedURL,
+            title: nil,
+            stage: .fetching
+        )
         queue.append(item)
         saveQueue()
         processQueue()
@@ -89,8 +102,9 @@ class DownloadManager: ObservableObject {
         queue[index] = item
         saveQueue()
 
-        if status == .completed || status == .failed {
+        if status == .completed || status == .failed || status == .cancelled {
             activeDownloads = max(0, activeDownloads - 1)
+            cancellations[id] = nil
             processQueue()
         }
     }
@@ -110,6 +124,50 @@ class DownloadManager: ObservableObject {
         status == .queued || status == .retrying || status == .downloading || status == .merging
     }
 
+    func cancelItem(id: UUID) {
+        cancellations[id]?.cancel()
+        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        var item = queue[index]
+        if item.status == .completed { return }
+        let wasRunning = isActive(item.status)
+        item.applyStatus(.cancelled, progress: item.progress)
+        item.stage = .cancelled
+        queue[index] = item
+        if wasRunning {
+            activeDownloads = max(0, activeDownloads - 1)
+        }
+        cancellations[id] = nil
+        saveQueue()
+        processQueue()
+    }
+
+    func stopAll() {
+        let ids = queue.map(\.id)
+        for id in ids {
+            cancellations[id]?.cancel()
+        }
+        cancellations.removeAll()
+        let kept = queue.filter { $0.status == .completed }
+        queue = kept
+        if let selectedItemID, kept.contains(where: { $0.id == selectedItemID }) == false {
+            self.selectedItemID = nil
+        }
+        activeDownloads = 0
+        retryStates.removeAll()
+        saveQueue()
+        cleanPartialWorkDirs()
+    }
+
+    private func cleanPartialWorkDirs() {
+        let tmp = FileManager.default.temporaryDirectory
+        guard let items = try? FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for item in items where item.lastPathComponent.hasPrefix("ytd-sort-") || item.lastPathComponent.hasPrefix("ytd-merge-") {
+            try? FileManager.default.removeItem(at: item)
+        }
+    }
+
     private func processQueue() {
         let maxConcurrent = settings.maxConcurrentDownloads
         guard activeDownloads < maxConcurrent else { return }
@@ -122,10 +180,14 @@ class DownloadManager: ObservableObject {
     }
 
     private func downloadItem(_ item: DownloadItem) async {
-        updateItemStatus(id: item.id, status: .downloading, progress: 0)
+        let token = ProcessCancellation()
+        cancellations[item.id] = token
+        applyStage(id: item.id, status: .downloading, stage: .fetching, progress: 0)
 
         do {
-            try await runDownload(item, useCookies: false)
+            try await runDownload(item, useCookies: false, cancellation: token)
+        } catch DownloadError.cancelled {
+            updateItemStatus(id: item.id, status: .cancelled)
         } catch let error as DownloadError where error.requiresCookies {
             await retryWithCookies(item: item, error: error)
         } catch let error as DownloadError where error.isTransient {
@@ -136,10 +198,10 @@ class DownloadManager: ObservableObject {
         }
     }
 
-    private func runDownload(_ item: DownloadItem, useCookies: Bool) async throws {
+    private func runDownload(_ item: DownloadItem, useCookies: Bool, cancellation: ProcessCancellation? = nil) async throws {
         let adapter = SiteAdapterRegistry.adapter(for: item.url)
         if adapter.formatSpec != nil {
-            try await downloadBySort(item, adapter: adapter, useCookies: useCookies)
+            try await downloadBySort(item, adapter: adapter, useCookies: useCookies, cancellation: cancellation)
             return
         }
         try await downloadYouTube(item, useCookies: useCookies)
@@ -178,7 +240,7 @@ class DownloadManager: ObservableObject {
     }
 
     /// Re-extracts on every attempt: VK CDN URLs are IP-bound and expire.
-    private func downloadBySort(_ item: DownloadItem, adapter: SiteAdapterInfo, useCookies: Bool) async throws {
+    private func downloadBySort(_ item: DownloadItem, adapter: SiteAdapterInfo, useCookies: Bool, cancellation: ProcessCancellation?) async throws {
         let settings = self.settings
         let downloadDir = (settings.downloadDirectory as NSString).expandingTildeInPath
         let itemID = item.id
@@ -201,9 +263,20 @@ class DownloadManager: ObservableObject {
                 adapter: adapter,
                 useCookies: useCookies,
                 includeFormatList: false,
+                cancellation: cancellation,
                 onProgress: { progress in
                     Task { @MainActor in
                         DownloadProgressBridge.shared.update(id: itemID, fraction: progress)
+                    }
+                },
+                onTransfer: { transfer in
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.transfer(id: itemID, transfer: transfer)
+                    }
+                },
+                onMeta: { choice in
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.meta(id: itemID, choice: choice)
                     }
                 },
                 onMerging: {
@@ -229,7 +302,7 @@ class DownloadManager: ObservableObject {
         }
 
         do {
-            try await runDownload(item, useCookies: true)
+            try await runDownload(item, useCookies: true, cancellation: cancellations[item.id])
         } catch {
             let downloadError = error as? DownloadError ?? .unknown(error.localizedDescription)
             updateItemStatus(id: item.id, status: .failed, error: downloadError.errorDescription)
@@ -319,7 +392,7 @@ class DownloadManager: ObservableObject {
     }
 
     func clearFinished() {
-        let removedIDs = Set(queue.filter { $0.status == .completed || $0.status == .failed }.map(\.id))
+        let removedIDs = Set(queue.filter { $0.status == .completed || $0.status == .failed || $0.status == .cancelled }.map(\.id))
         guard !removedIDs.isEmpty else { return }
         queue.removeAll { removedIDs.contains($0.id) }
         if let selectedItemID, removedIDs.contains(selectedItemID) {
@@ -329,7 +402,7 @@ class DownloadManager: ObservableObject {
     }
 
     var hasFinishedItems: Bool {
-        queue.contains { $0.status == .completed || $0.status == .failed }
+        queue.contains { $0.status == .completed || $0.status == .failed || $0.status == .cancelled }
     }
 
     func attachProgressBridge() {
@@ -338,10 +411,37 @@ class DownloadManager: ObservableObject {
             if status == .completed {
                 self.updateItemStatus(id: id, status: .completed, progress: 1, outputPath: path)
             } else if status == .merging {
-                self.updateItemStatus(id: id, status: .merging, progress: progress)
+                self.applyStage(id: id, status: .merging, stage: .merging, progress: progress)
             } else {
                 self.updateProgress(id: id, progress: progress)
             }
+        }
+        DownloadProgressBridge.shared.metaHandler = { [weak self] id, choice in
+            self?.applyStage(
+                id: id,
+                status: .downloading,
+                stage: .formatChosen,
+                title: choice.title,
+                formatSummary: choice.summary
+            )
+        }
+        DownloadProgressBridge.shared.transferHandler = { [weak self] id, transfer in
+            let stage: DownloadStage
+            switch transfer.stream {
+            case .audio: stage = .downloadingAudio
+            case .video: stage = .downloadingVideo
+            case .unknown:
+                stage = transfer.fraction != nil ? .downloadingVideo : .downloadingVideo
+            }
+            self?.applyStage(
+                id: id,
+                status: .downloading,
+                stage: stage,
+                progress: transfer.fraction,
+                speedText: transfer.speed,
+                etaText: transfer.eta,
+                sizeText: transfer.sizeText
+            )
         }
     }
 
@@ -349,9 +449,38 @@ class DownloadManager: ObservableObject {
         processQueue()
     }
 
+    private func applyStage(
+        id: UUID,
+        status: DownloadStatus? = nil,
+        stage: DownloadStage? = nil,
+        progress: Double? = nil,
+        title: String? = nil,
+        formatSummary: String? = nil,
+        speedText: String? = nil,
+        etaText: String? = nil,
+        sizeText: String? = nil
+    ) {
+        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        var item = queue[index]
+        if let status {
+            item.applyStatus(status, progress: progress)
+        } else if let progress {
+            item.progress = min(max(progress, item.progress), 1)
+        }
+        if let stage { item.stage = stage }
+        if let title, !title.isEmpty { item.title = title }
+        if let formatSummary, !formatSummary.isEmpty { item.formatSummary = formatSummary }
+        if let speedText { item.speedText = speedText }
+        if let etaText { item.etaText = etaText }
+        if let sizeText { item.sizeText = sizeText }
+        queue[index] = item
+        if Date().timeIntervalSince(lastProgressSave) >= 0.4 {
+            lastProgressSave = Date()
+            saveQueue()
+        }
+    }
+
     private func loadSettings() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let settingsFile = appSupport.appendingPathComponent("YTDownloader/settings.json")
         guard let data = try? Data(contentsOf: settingsFile),
               let loaded = try? JSONDecoder().decode(DownloadSettings.self, from: data) else {
             return
@@ -360,8 +489,6 @@ class DownloadManager: ObservableObject {
     }
 
     func saveSettings() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let settingsFile = appSupport.appendingPathComponent("YTDownloader/settings.json")
         guard let data = try? JSONEncoder().encode(settings) else { return }
         try? data.write(to: settingsFile)
     }
@@ -390,6 +517,8 @@ class DownloadManager: ObservableObject {
 final class DownloadProgressBridge {
     static let shared = DownloadProgressBridge()
     var handler: ((UUID, DownloadStatus, Double, String?) -> Void)?
+    var metaHandler: ((UUID, ParsedFormatChoice) -> Void)?
+    var transferHandler: ((UUID, TransferProgress) -> Void)?
 
     func update(id: UUID, fraction: Double) {
         handler?(id, .downloading, fraction, nil)
@@ -401,5 +530,13 @@ final class DownloadProgressBridge {
 
     func completed(id: UUID, path: String) {
         handler?(id, .completed, 1, path)
+    }
+
+    func meta(id: UUID, choice: ParsedFormatChoice) {
+        metaHandler?(id, choice)
+    }
+
+    func transfer(id: UUID, transfer: TransferProgress) {
+        transferHandler?(id, transfer)
     }
 }

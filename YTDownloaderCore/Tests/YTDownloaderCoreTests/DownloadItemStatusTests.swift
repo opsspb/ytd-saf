@@ -17,7 +17,7 @@ final class DownloadItemStatusTests: XCTestCase {
         XCTAssertEqual(item.status, .completed)
         XCTAssertNil(item.error)
         XCTAssertFalse(item.showsFailureUI)
-        XCTAssertEqual(item.listStatusText, "Completed")
+        XCTAssertEqual(item.listStatusText, "Done")
         XCTAssertEqual(item.outputPath, "/tmp/singapore.mkv")
         XCTAssertTrue(item.log?.contains("Interrupted; retrying") == true)
     }

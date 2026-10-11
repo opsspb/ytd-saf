@@ -145,6 +145,7 @@
     }
 
     function openHostApp(videoId, url) {
+        if (global.__YTD_TEST__) return;
         const params = new URLSearchParams({ videoId, url });
         const scheme = `ytdownloader://download?${params.toString()}`;
         const iframe = document.createElement('iframe');

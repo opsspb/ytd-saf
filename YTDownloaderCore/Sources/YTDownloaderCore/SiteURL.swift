@@ -165,7 +165,7 @@ public struct SiteAdapterInfo: Equatable, Sendable {
 }
 
 public enum SiteAdapterRegistry {
-    public static let aria2cArgs = "-j 16 -s 16 -x 16 -k 1M --file-allocation=none"
+    public static let aria2cArgs = "-j 16 -s 16 -x 16 -k 1M --file-allocation=none --summary-interval=1 --console-log-level=notice"
 
     public static let youtube = SiteAdapterInfo(site: .youtube)
     public static let vk = SiteAdapterInfo(

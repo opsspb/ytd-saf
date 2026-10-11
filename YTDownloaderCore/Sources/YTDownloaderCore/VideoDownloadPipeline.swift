@@ -435,7 +435,10 @@ public struct VideoDownloadPipeline: Sendable {
         adapter: SiteAdapterInfo = SiteAdapterRegistry.vk,
         useCookies: Bool = false,
         includeFormatList: Bool = false,
+        cancellation: ProcessCancellation? = nil,
         onProgress: (@Sendable (Double) -> Void)? = nil,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil,
+        onMeta: (@Sendable (ParsedFormatChoice) -> Void)? = nil,
         onMerging: (@Sendable () -> Void)? = nil
     ) throws -> DownloadPipelineResult {
         try downloadBestBySort(
@@ -444,7 +447,10 @@ public struct VideoDownloadPipeline: Sendable {
             adapter: adapter,
             useCookies: useCookies,
             includeFormatList: includeFormatList,
+            cancellation: cancellation,
             onProgress: onProgress,
+            onTransfer: onTransfer,
+            onMeta: onMeta,
             onMerging: onMerging
         )
     }
@@ -455,7 +461,10 @@ public struct VideoDownloadPipeline: Sendable {
         adapter: SiteAdapterInfo,
         useCookies: Bool,
         includeFormatList: Bool = true,
+        cancellation: ProcessCancellation? = nil,
         onProgress: (@Sendable (Double) -> Void)? = nil,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil,
+        onMeta: (@Sendable (ParsedFormatChoice) -> Void)? = nil,
         onMerging: (@Sendable () -> Void)? = nil
     ) throws -> DownloadPipelineResult {
         try FileManager.default.createDirectory(atPath: outputDirectory, withIntermediateDirectories: true)
@@ -473,11 +482,15 @@ public struct VideoDownloadPipeline: Sendable {
                 outputPath: tempOutput,
                 useCookies: useCookies,
                 useExternalDownloader: true,
+                cancellation: cancellation,
                 onProgress: onProgress,
+                onTransfer: onTransfer,
+                onMeta: onMeta,
                 onMerging: onMerging
             )
         } catch {
             let text = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            if (error as? DownloadError) == .cancelled { throw error }
             if isExternalDownloaderFailure(text) {
                 choice = try downloadSortedOnce(
                     url: url,
@@ -485,7 +498,10 @@ public struct VideoDownloadPipeline: Sendable {
                     outputPath: tempOutput,
                     useCookies: useCookies,
                     useExternalDownloader: false,
+                    cancellation: cancellation,
                     onProgress: onProgress,
+                    onTransfer: onTransfer,
+                    onMeta: onMeta,
                     onMerging: onMerging
                 )
             } else {
@@ -547,7 +563,10 @@ public struct VideoDownloadPipeline: Sendable {
         outputPath: String,
         useCookies: Bool,
         useExternalDownloader: Bool = true,
+        cancellation: ProcessCancellation? = nil,
         onProgress: (@Sendable (Double) -> Void)?,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil,
+        onMeta: (@Sendable (ParsedFormatChoice) -> Void)? = nil,
         onMerging: (@Sendable () -> Void)?
     ) throws -> ParsedFormatChoice {
         guard let formatSpec = adapter.formatSpec, let formatSort = adapter.formatSort else {
@@ -575,13 +594,39 @@ public struct VideoDownloadPipeline: Sendable {
         let aria2c = useExternalDownloader ? aria2cPath : nil
         args.insert(contentsOf: adapter.downloadArgs(aria2cPath: aria2c), at: args.count - 1)
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
-        let result = try run(ytdlpPath, arguments: args, onOutput: { line in
+        let workDir = (outputPath as NSString).deletingLastPathComponent
+        let expected = LockedBytes()
+        let result = try run(ytdlpPath, arguments: args, cancellation: cancellation, onOutput: { line in
             captured.append(line)
+            if let meta = YTDLPOutputParser.parseMeta(from: line) {
+                onMeta?(meta)
+            }
             if line.contains("[Merger]") || line.contains("[Fixup]") || line.contains("[Remux]") {
                 onMerging?()
             }
-            if let progress = YTDLPProgress.parse(line) {
-                onProgress?(progress)
+            if let kind = YTDLPProgress.streamKind(fromDestination: line) {
+                onTransfer?(TransferProgress(stream: kind))
+            }
+            if let transfer = YTDLPProgress.parseTransfer(line) {
+                if let bytes = transfer.expectedBytes { expected.set(bytes) }
+                onProgress?(transfer.fraction ?? 0)
+                onTransfer?(transfer)
+            }
+        }, onTick: {
+            let wrote = YTDLPProgress.allocatedBytes(in: workDir)
+            guard wrote > 0 else { return }
+            let total = expected.value
+            if total > 0 {
+                let fraction = min(Double(wrote) / Double(total), 0.99)
+                onProgress?(fraction)
+                onTransfer?(TransferProgress(
+                    fraction: fraction,
+                    sizeText: bytePair(wrote, total),
+                    expectedBytes: total,
+                    downloadedBytes: wrote
+                ))
+            } else if wrote > 1_000_000 {
+                onTransfer?(TransferProgress(downloadedBytes: wrote, stream: .video))
             }
         })
         let output = combinedOutput(result) + "\n" + captured.value
@@ -641,6 +686,32 @@ public struct VideoDownloadPipeline: Sendable {
         }
     }
 
+    private final class LockedBytes: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: Int64 = 0
+        func set(_ value: Int64) {
+            lock.lock()
+            storage = value
+            lock.unlock()
+        }
+        var value: Int64 {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+    }
+
+    private func bytePair(_ got: Int64, _ total: Int64) -> String {
+        func fmt(_ n: Int64) -> String {
+            let kb = Double(n) / 1024
+            if kb < 1024 { return String(format: "%.0fKiB", kb) }
+            let mb = kb / 1024
+            if mb < 1024 { return String(format: "%.1fMiB", mb) }
+            return String(format: "%.2fGiB", mb / 1024)
+        }
+        return "\(fmt(got))/\(fmt(total))"
+    }
+
     private func cookieArguments(useCookies: Bool) -> [String] {
         guard useCookies else { return [] }
         switch cookieMode {
@@ -665,15 +736,22 @@ public struct VideoDownloadPipeline: Sendable {
     private func run(
         _ executable: String,
         arguments: [String],
-        onOutput: (@Sendable (String) -> Void)? = nil
+        cancellation: ProcessCancellation? = nil,
+        onOutput: (@Sendable (String) -> Void)? = nil,
+        onTick: (@Sendable () -> Void)? = nil
     ) throws -> ProcessResult {
         let timeout = Self.ytdlpTimeout(for: arguments)
         let result = try ProcessRunner.run(
             executable: executable,
             arguments: arguments,
             timeout: timeout,
-            onOutput: onOutput
+            cancellation: cancellation,
+            onOutput: onOutput,
+            onTick: onTick
         )
+        if result.cancelled {
+            throw DownloadError.cancelled
+        }
         if result.timedOut {
             throw DownloadError.unknown("Timed out running \(executable)")
         }

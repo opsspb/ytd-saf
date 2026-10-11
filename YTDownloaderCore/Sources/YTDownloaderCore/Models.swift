@@ -121,6 +121,7 @@ public enum DownloadStatus: String, Codable {
     case merging
     case completed
     case failed
+    case cancelled
 }
 
 public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
@@ -134,6 +135,11 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
     public var log: String?
     public var retryNote: String?
     public var outputPath: String?
+    public var stage: DownloadStage?
+    public var formatSummary: String?
+    public var speedText: String?
+    public var etaText: String?
+    public var sizeText: String?
     public var addedAt: Date
     public var completedAt: Date?
     
@@ -148,6 +154,11 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         log: String? = nil,
         retryNote: String? = nil,
         outputPath: String? = nil,
+        stage: DownloadStage? = nil,
+        formatSummary: String? = nil,
+        speedText: String? = nil,
+        etaText: String? = nil,
+        sizeText: String? = nil,
         addedAt: Date = Date(),
         completedAt: Date? = nil
     ) {
@@ -161,12 +172,18 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         self.log = log
         self.retryNote = retryNote
         self.outputPath = outputPath
+        self.stage = stage
+        self.formatSummary = formatSummary
+        self.speedText = speedText
+        self.etaText = etaText
+        self.sizeText = sizeText
         self.addedAt = addedAt
         self.completedAt = completedAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, videoId, url, title, status, progress, error, log, retryNote, outputPath, addedAt, completedAt
+        case id, videoId, url, title, status, progress, error, log, retryNote, outputPath
+        case stage, formatSummary, speedText, etaText, sizeText, addedAt, completedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -181,6 +198,11 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         log = try container.decodeIfPresent(String.self, forKey: .log)
         retryNote = try container.decodeIfPresent(String.self, forKey: .retryNote)
         outputPath = try container.decodeIfPresent(String.self, forKey: .outputPath)
+        stage = try container.decodeIfPresent(DownloadStage.self, forKey: .stage)
+        formatSummary = try container.decodeIfPresent(String.self, forKey: .formatSummary)
+        speedText = try container.decodeIfPresent(String.self, forKey: .speedText)
+        etaText = try container.decodeIfPresent(String.self, forKey: .etaText)
+        sizeText = try container.decodeIfPresent(String.self, forKey: .sizeText)
         addedAt = try container.decode(Date.self, forKey: .addedAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
     }
@@ -197,6 +219,11 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(log, forKey: .log)
         try container.encodeIfPresent(retryNote, forKey: .retryNote)
         try container.encodeIfPresent(outputPath, forKey: .outputPath)
+        try container.encodeIfPresent(stage, forKey: .stage)
+        try container.encodeIfPresent(formatSummary, forKey: .formatSummary)
+        try container.encodeIfPresent(speedText, forKey: .speedText)
+        try container.encodeIfPresent(etaText, forKey: .etaText)
+        try container.encodeIfPresent(sizeText, forKey: .sizeText)
         try container.encode(addedAt, forKey: .addedAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
     }
@@ -206,24 +233,100 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         status == .failed && !(error ?? "").isEmpty
     }
 
+    public var displayTitle: String {
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return title
+        }
+        return AppSupport.fetchingTitle(for: url)
+    }
+
     public var listStatusText: String {
         switch status {
         case .queued:
-            return "Queued"
+            return stage == .fetching ? "Fetching info" : "Queued"
         case .retrying:
             return retryNote ?? "Retrying"
         case .downloading:
-            return String(format: "Downloading %.0f%%", progress * 100)
+            return liveTransferLine()
         case .merging:
-            return "Merging..."
+            return "Merging"
         case .completed:
-            return "Completed"
+            return "Done"
+        case .cancelled:
+            return "Cancelled"
         case .failed:
             if let error, !error.isEmpty {
                 return "Failed: \(DownloadError.shortDisplayLine(from: error))"
             }
             return "Failed"
         }
+    }
+
+    public var stageSteps: [String] {
+        let current = resolvedStage
+        let names: [(DownloadStage, String)] = [
+            (.fetching, "Fetching info"),
+            (.formatChosen, formatSummary.map { "Format chosen: \($0)" } ?? "Format chosen"),
+            (.downloadingVideo, "Downloading video"),
+            (.downloadingAudio, "Downloading audio"),
+            (.merging, "Merging"),
+            (.completed, "Done")
+        ]
+        if status == .failed {
+            return names.map(\.1) + ["Failed"]
+        }
+        if status == .cancelled {
+            return names.map(\.1) + ["Cancelled"]
+        }
+        if status == .retrying {
+            return names.map(\.1) + [retryNote ?? "Retrying"]
+        }
+        var seen = false
+        return names.map { stage, label in
+            if stage == current { seen = true }
+            if stage == current { return "→ \(label)" }
+            if !seen { return "✓ \(label)" }
+            return label
+        }
+    }
+
+    private var resolvedStage: DownloadStage {
+        if let stage { return stage }
+        switch status {
+        case .queued: return .fetching
+        case .downloading: return .downloadingVideo
+        case .merging: return .merging
+        case .completed: return .completed
+        case .failed: return .failed
+        case .retrying: return .retrying
+        case .cancelled: return .cancelled
+        }
+    }
+
+    private func liveTransferLine() -> String {
+        switch resolvedStage {
+        case .fetching:
+            return "Fetching info"
+        case .formatChosen:
+            if let formatSummary, !formatSummary.isEmpty {
+                return "Format chosen: \(formatSummary)"
+            }
+            return "Format chosen"
+        case .downloadingAudio:
+            return transferLine(prefix: "Downloading audio")
+        case .merging:
+            return "Merging"
+        default:
+            return transferLine(prefix: "Downloading video")
+        }
+    }
+
+    private func transferLine(prefix: String) -> String {
+        var parts = [String(format: "%@ %.0f%%", prefix, progress * 100)]
+        if let speedText, !speedText.isEmpty { parts.append(speedText) }
+        if let etaText, !etaText.isEmpty { parts.append("ETA \(etaText)") }
+        if let sizeText, !sizeText.isEmpty { parts.append(sizeText) }
+        return parts.joined(separator: " · ")
     }
 
     public static func retryStatusLine(delay: TimeInterval, attempt: Int, maxAttempts: Int) -> String {
@@ -272,6 +375,10 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
             if let retryNote {
                 self.retryNote = retryNote
             }
+        case .cancelled:
+            self.error = nil
+            self.retryNote = nil
+            completedAt = Date()
         case .queued, .downloading, .merging:
             if let retryNote {
                 self.retryNote = retryNote
@@ -331,6 +438,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     case networkError(String)
     case bootstrapFailed(String)
     case unsupportedMedia
+    case cancelled
     case unknown(String)
     
     public var shortMessage: String {
@@ -367,6 +475,8 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Could not install yt-dlp/ffmpeg"
         case .unsupportedMedia:
             return "This page is not supported (live, playlist, or embed)"
+        case .cancelled:
+            return "Cancelled"
         case .unknown:
             return "Download failed"
         }
@@ -376,7 +486,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
         switch self {
         case .ytdlpNotFound, .ffmpegNotFound, .invalidURL, .noSuitableFormats,
              .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired,
-             .forbidden, .tooManyRequests, .unsupportedMedia:
+             .forbidden, .tooManyRequests, .unsupportedMedia, .cancelled:
             return shortMessage
         case .fetchInfoFailed(let msg):
             return "Failed to fetch video info: \(msg)"

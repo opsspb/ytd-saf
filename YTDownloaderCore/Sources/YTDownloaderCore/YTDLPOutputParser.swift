@@ -9,6 +9,10 @@ public struct ParsedFormatChoice: Equatable, Sendable {
     public let fps: Double?
     public let videoFormatId: String
     public let audioFormatId: String?
+    public let vcodec: String?
+    public let acodec: String?
+    public let vbr: Double?
+    public let abr: Double?
 
     public init(
         extractor: String,
@@ -16,7 +20,11 @@ public struct ParsedFormatChoice: Equatable, Sendable {
         title: String,
         formatId: String,
         resolution: String? = nil,
-        fps: Double? = nil
+        fps: Double? = nil,
+        vcodec: String? = nil,
+        acodec: String? = nil,
+        vbr: Double? = nil,
+        abr: Double? = nil
     ) {
         self.extractor = extractor
         self.id = id
@@ -24,9 +32,38 @@ public struct ParsedFormatChoice: Equatable, Sendable {
         self.formatId = formatId
         self.resolution = resolution
         self.fps = fps
+        self.vcodec = vcodec
+        self.acodec = acodec
+        self.vbr = vbr
+        self.abr = abr
         let parts = YTDLPOutputParser.splitFormatPair(formatId)
         self.videoFormatId = parts.video
         self.audioFormatId = parts.audio
+    }
+
+    public var summary: String {
+        var parts: [String] = []
+        if let resolution, !resolution.isEmpty, resolution != "NAxNA" {
+            parts.append(resolution)
+        }
+        if let fps, fps > 0 {
+            parts.append("\(Int(fps.rounded()))fps")
+        }
+        if let vcodec, !vcodec.isEmpty, vcodec != "none" {
+            parts.append(YTDLPOutputParser.shortCodec(vcodec))
+        }
+        if let acodec, !acodec.isEmpty, acodec != "none" {
+            let name = YTDLPOutputParser.shortCodec(acodec)
+            if let abr, abr > 0 {
+                parts.append("+ \(name) \(Int(abr.rounded()))k")
+            } else {
+                parts.append("+ \(name)")
+            }
+        }
+        if parts.isEmpty {
+            return formatId
+        }
+        return parts.joined(separator: " ")
     }
 }
 
@@ -34,7 +71,7 @@ public enum YTDLPOutputParser {
     public static let metaPrefix = "YTD_META:"
 
     public static func metaPrintTemplate() -> String {
-        "\(metaPrefix)%(extractor)s|||%(id)s|||%(title)s|||%(format_id)s|||%(width)sx%(height)s|||%(fps)s"
+        "\(metaPrefix)%(extractor)s|||%(id)s|||%(title)s|||%(format_id)s|||%(width)sx%(height)s|||%(fps)s|||%(vcodec)s|||%(acodec)s|||%(vbr)s|||%(abr)s"
     }
 
     public static func parseMeta(from output: String) -> ParsedFormatChoice? {
@@ -52,6 +89,10 @@ public enum YTDLPOutputParser {
             let formatId = fields[3]
             let resolution = fields.count > 4 ? fields[4] : nil
             let fps = fields.count > 5 ? Double(fields[5]) : nil
+            let vcodec = fields.count > 6 ? fields[6] : nil
+            let acodec = fields.count > 7 ? fields[7] : nil
+            let vbr = fields.count > 8 ? Double(fields[8]) : nil
+            let abr = fields.count > 9 ? Double(fields[9]) : nil
             guard !id.isEmpty, !formatId.isEmpty else { continue }
             return ParsedFormatChoice(
                 extractor: extractor,
@@ -59,7 +100,11 @@ public enum YTDLPOutputParser {
                 title: title,
                 formatId: formatId,
                 resolution: resolution == "NAxNA" ? nil : resolution,
-                fps: fps
+                fps: fps,
+                vcodec: vcodec,
+                acodec: acodec,
+                vbr: vbr,
+                abr: abr
             )
         }
         if let fallback = parseChosenFormatLine(from: output) {
@@ -87,5 +132,19 @@ public enum YTDLPOutputParser {
             return (first, parts[1])
         }
         return (first, nil)
+    }
+
+    public static func shortCodec(_ raw: String) -> String {
+        let lower = raw.lowercased()
+        if lower.hasPrefix("vp09") || lower.hasPrefix("vp9") { return "VP9" }
+        if lower.hasPrefix("av01") || lower.hasPrefix("av1") { return "AV1" }
+        if lower.hasPrefix("avc") || lower.hasPrefix("h264") { return "AVC" }
+        if lower.hasPrefix("hev") || lower.hasPrefix("h265") || lower.hasPrefix("hevc") { return "HEVC" }
+        if lower.hasPrefix("mp4a") || lower.contains("aac") { return "AAC" }
+        if lower.hasPrefix("opus") { return "Opus" }
+        if let base = raw.split(separator: ".").first {
+            return String(base)
+        }
+        return raw
     }
 }

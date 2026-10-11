@@ -20,7 +20,7 @@ final class SiteAdapterTests: XCTestCase {
         XCTAssertEqual(adapter.concurrentFragments, 16)
         XCTAssertTrue(adapter.wantsExternalDownloader)
         XCTAssertEqual(adapter.externalDownloaderArgs, SiteAdapterRegistry.aria2cArgs)
-        XCTAssertEqual(SiteAdapterRegistry.aria2cArgs, "-j 16 -s 16 -x 16 -k 1M --file-allocation=none")
+        XCTAssertEqual(SiteAdapterRegistry.aria2cArgs, "-j 16 -s 16 -x 16 -k 1M --file-allocation=none --summary-interval=1 --console-log-level=notice")
     }
 
     func testVKDownloadArgsAddAria2cAndConcurrentFragments() {
@@ -30,7 +30,7 @@ final class SiteAdapterTests: XCTestCase {
         XCTAssertTrue(withAria.contains("--external-downloader"))
         XCTAssertTrue(withAria.contains("/tmp/aria2c"))
         XCTAssertTrue(withAria.contains("--external-downloader-args"))
-        XCTAssertTrue(withAria.contains("aria2c:-j 16 -s 16 -x 16 -k 1M --file-allocation=none"))
+        XCTAssertTrue(withAria.contains("aria2c:-j 16 -s 16 -x 16 -k 1M --file-allocation=none --summary-interval=1 --console-log-level=notice"))
         XCTAssertFalse(withAria.contains("-f"))
         XCTAssertFalse(withAria.contains("-S"))
 
