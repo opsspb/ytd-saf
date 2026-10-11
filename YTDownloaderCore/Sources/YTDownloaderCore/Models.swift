@@ -330,6 +330,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     case tooManyRequests
     case networkError(String)
     case bootstrapFailed(String)
+    case unsupportedMedia
     case unknown(String)
     
     public var shortMessage: String {
@@ -364,6 +365,8 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Network error"
         case .bootstrapFailed:
             return "Could not install yt-dlp/ffmpeg"
+        case .unsupportedMedia:
+            return "This page is not supported (live, playlist, or embed)"
         case .unknown:
             return "Download failed"
         }
@@ -373,7 +376,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
         switch self {
         case .ytdlpNotFound, .ffmpegNotFound, .invalidURL, .noSuitableFormats,
              .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired,
-             .forbidden, .tooManyRequests:
+             .forbidden, .tooManyRequests, .unsupportedMedia:
             return shortMessage
         case .fetchInfoFailed(let msg):
             return "Failed to fetch video info: \(msg)"
@@ -412,6 +415,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             "Too many requests (429)",
             "Network error",
             "Could not install yt-dlp/ffmpeg",
+            "This page is not supported (live, playlist, or embed)",
             "Download failed",
         ]
         for prefix in known where firstLine.hasPrefix(prefix) || stored.hasPrefix(prefix) {

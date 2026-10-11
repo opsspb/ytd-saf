@@ -31,11 +31,33 @@ class DownloadManager: ObservableObject {
     }
 
     func addDownload(videoId: String, url: String) {
-        if queue.contains(where: { $0.videoId == videoId && isActive($0.status) }) {
+        var resolvedId = videoId
+        var resolvedURL = url
+        if let ref = SiteURL.resolve(url) {
+            if !ref.isDownloadable {
+                let failed = DownloadItem(
+                    videoId: videoId.isEmpty ? (ref.id.isEmpty ? url : ref.id) : videoId,
+                    url: url,
+                    status: .failed,
+                    error: DownloadError.unsupportedMedia.errorDescription
+                )
+                if !queue.contains(where: { $0.videoId == failed.videoId && $0.status == .failed }) {
+                    queue.append(failed)
+                    saveQueue()
+                }
+                return
+            }
+            if ref.site == .vk {
+                resolvedId = ref.id
+                resolvedURL = ref.url
+            }
+        }
+
+        if queue.contains(where: { $0.videoId == resolvedId && isActive($0.status) }) {
             return
         }
 
-        if let index = queue.firstIndex(where: { $0.videoId == videoId && $0.status == .failed }) {
+        if let index = queue.firstIndex(where: { $0.videoId == resolvedId && $0.status == .failed }) {
             var item = queue[index]
             item.status = .queued
             item.progress = 0
@@ -47,7 +69,7 @@ class DownloadManager: ObservableObject {
             return
         }
 
-        let item = DownloadItem(videoId: videoId, url: url)
+        let item = DownloadItem(videoId: resolvedId, url: resolvedURL)
         queue.append(item)
         saveQueue()
         processQueue()
@@ -103,34 +125,7 @@ class DownloadManager: ObservableObject {
         updateItemStatus(id: item.id, status: .downloading, progress: 0)
 
         do {
-            let settings = self.settings
-            let result = try await Task.detached(priority: .userInitiated) { [formatSelector] in
-                guard let paths = BinaryBootstrap().locateExisting() else {
-                    throw DownloadError.ytdlpNotFound
-                }
-                let pipeline = VideoDownloadPipeline(
-                    ytdlpPath: paths.ytdlp,
-                    ffmpegPath: paths.ffmpeg,
-                    cookieMode: settings.cookieMode,
-                    cookieFilePath: settings.cookieFilePath
-                )
-                let info = try pipeline.fetchInfo(url: item.url, useCookies: false)
-                let formats = try formatSelector.selectBestFormats(from: info)
-                let fallbackIds = formatSelector.sameResolutionRung(as: formats.video, from: info)
-                    .map(\.formatId)
-                    .filter { $0 != formats.video.formatId }
-                return (pipeline, info, formats, fallbackIds)
-            }.value
-
-            updateTitle(id: item.id, title: result.1.title)
-
-            try await downloadAndMerge(
-                item: item,
-                info: result.1,
-                formats: result.2,
-                pipeline: result.0,
-                fallbackVideoFormatIds: result.3
-            )
+            try await runDownload(item, useCookies: false)
         } catch let error as DownloadError where error.requiresCookies {
             await retryWithCookies(item: item, error: error)
         } catch let error as DownloadError where error.isTransient {
@@ -141,6 +136,91 @@ class DownloadManager: ObservableObject {
         }
     }
 
+    private func runDownload(_ item: DownloadItem, useCookies: Bool) async throws {
+        let adapter = SiteAdapterRegistry.adapter(for: item.url)
+        if adapter.formatSpec != nil {
+            try await downloadBySort(item: item, adapter: adapter, useCookies: useCookies)
+            return
+        }
+        try await downloadYouTube(item: item, useCookies: useCookies)
+    }
+
+    private func downloadYouTube(_ item: DownloadItem, useCookies: Bool) async throws {
+        let settings = self.settings
+        let result = try await Task.detached(priority: .userInitiated) { [formatSelector] in
+            guard let paths = BinaryBootstrap().locateExisting() else {
+                throw DownloadError.ytdlpNotFound
+            }
+            let pipeline = VideoDownloadPipeline(
+                ytdlpPath: paths.ytdlp,
+                ffmpegPath: paths.ffmpeg,
+                cookieMode: settings.cookieMode,
+                cookieFilePath: settings.cookieFilePath
+            )
+            let info = try pipeline.fetchInfo(url: item.url, useCookies: useCookies)
+            let formats = try formatSelector.selectBestFormats(from: info)
+            let fallbackIds = formatSelector.sameResolutionRung(as: formats.video, from: info)
+                .map(\.formatId)
+                .filter { $0 != formats.video.formatId }
+            return (pipeline, info, formats, fallbackIds)
+        }.value
+
+        updateTitle(id: item.id, title: result.1.title)
+
+        try await downloadAndMerge(
+            item: item,
+            info: result.1,
+            formats: result.2,
+            pipeline: result.0,
+            useCookies: useCookies,
+            fallbackVideoFormatIds: result.3
+        )
+    }
+
+    /// Re-extracts on every attempt: VK CDN URLs are IP-bound and expire.
+    private func downloadBySort(_ item: DownloadItem, adapter: SiteAdapterInfo, useCookies: Bool) async throws {
+        let settings = self.settings
+        let downloadDir = (settings.downloadDirectory as NSString).expandingTildeInPath
+        let itemID = item.id
+        let url = item.url
+
+        let result = try await Task.detached(priority: .userInitiated) { () async throws -> DownloadPipelineResult in
+            guard let paths = BinaryBootstrap().locateExisting() else {
+                throw DownloadError.ytdlpNotFound
+            }
+            let pipeline = VideoDownloadPipeline(
+                ytdlpPath: paths.ytdlp,
+                ffmpegPath: paths.ffmpeg,
+                cookieMode: settings.cookieMode,
+                cookieFilePath: settings.cookieFilePath
+            )
+            return try pipeline.downloadBySort(
+                url: url,
+                outputDirectory: downloadDir,
+                adapter: adapter,
+                useCookies: useCookies,
+                includeFormatList: false,
+                onProgress: { progress in
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.update(id: itemID, fraction: progress)
+                    }
+                },
+                onMerging: {
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.merging(id: itemID)
+                    }
+                }
+            )
+        }.value
+
+        if !result.info.title.isEmpty {
+            updateTitle(id: item.id, title: result.info.title)
+        }
+        await MainActor.run {
+            DownloadProgressBridge.shared.completed(id: itemID, path: result.outputPath)
+        }
+    }
+
     private func retryWithCookies(item: DownloadItem, error: DownloadError) async {
         guard settings.cookieMode != .none else {
             updateItemStatus(id: item.id, status: .failed, error: error.errorDescription)
@@ -148,33 +228,7 @@ class DownloadManager: ObservableObject {
         }
 
         do {
-            let settings = self.settings
-            let result = try await Task.detached(priority: .userInitiated) { [formatSelector] in
-                guard let paths = BinaryBootstrap().locateExisting() else {
-                    throw DownloadError.ytdlpNotFound
-                }
-                let pipeline = VideoDownloadPipeline(
-                    ytdlpPath: paths.ytdlp,
-                    ffmpegPath: paths.ffmpeg,
-                    cookieMode: settings.cookieMode,
-                    cookieFilePath: settings.cookieFilePath
-                )
-                let info = try pipeline.fetchInfo(url: item.url, useCookies: true)
-                let formats = try formatSelector.selectBestFormats(from: info)
-                let fallbackIds = formatSelector.sameResolutionRung(as: formats.video, from: info)
-                    .map(\.formatId)
-                    .filter { $0 != formats.video.formatId }
-                return (pipeline, info, formats, fallbackIds)
-            }.value
-
-            try await downloadAndMerge(
-                item: item,
-                info: result.1,
-                formats: result.2,
-                pipeline: result.0,
-                useCookies: true,
-                fallbackVideoFormatIds: result.3
-            )
+            try await runDownload(item, useCookies: true)
         } catch {
             let downloadError = error as? DownloadError ?? .unknown(error.localizedDescription)
             updateItemStatus(id: item.id, status: .failed, error: downloadError.errorDescription)

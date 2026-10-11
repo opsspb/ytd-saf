@@ -395,6 +395,10 @@ public struct VideoDownloadPipeline: Sendable {
     }
 
     public func downloadBest(url: String, outputDirectory: String, useCookies: Bool = false) throws -> DownloadPipelineResult {
+        let adapter = SiteAdapterRegistry.adapter(for: url)
+        if adapter.formatSpec != nil {
+            return try downloadBestBySort(url: url, outputDirectory: outputDirectory, adapter: adapter, useCookies: useCookies)
+        }
         try FileManager.default.createDirectory(atPath: outputDirectory, withIntermediateDirectories: true)
         let formatList = try listFormats(url: url)
         let info = try fetchInfo(url: url, useCookies: useCookies)
@@ -420,10 +424,179 @@ public struct VideoDownloadPipeline: Sendable {
         return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)
     }
 
+    /// VK (and any adapter with a format spec): let yt-dlp pick formats.
+    /// Always re-extracts from the page URL so IP-bound CDN links stay fresh.
+    public func downloadBySort(
+        url: String,
+        outputDirectory: String,
+        adapter: SiteAdapterInfo = SiteAdapterRegistry.vk,
+        useCookies: Bool = false,
+        includeFormatList: Bool = false,
+        onProgress: (@Sendable (Double) -> Void)? = nil,
+        onMerging: (@Sendable () -> Void)? = nil
+    ) throws -> DownloadPipelineResult {
+        try downloadBestBySort(
+            url: url,
+            outputDirectory: outputDirectory,
+            adapter: adapter,
+            useCookies: useCookies,
+            includeFormatList: includeFormatList,
+            onProgress: onProgress,
+            onMerging: onMerging
+        )
+    }
+
+    private func downloadBestBySort(
+        url: String,
+        outputDirectory: String,
+        adapter: SiteAdapterInfo,
+        useCookies: Bool,
+        includeFormatList: Bool = true,
+        onProgress: (@Sendable (Double) -> Void)? = nil,
+        onMerging: (@Sendable () -> Void)? = nil
+    ) throws -> DownloadPipelineResult {
+        try FileManager.default.createDirectory(atPath: outputDirectory, withIntermediateDirectories: true)
+        let formatList = includeFormatList ? (try listFormats(url: url)) : ""
+        let workDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-sort-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDir) }
+        let tempOutput = workDir.appendingPathComponent("sorted.mkv").path
+
+        let choice: ParsedFormatChoice
+        do {
+            choice = try downloadSortedOnce(
+                url: url,
+                adapter: adapter,
+                outputPath: tempOutput,
+                useCookies: useCookies,
+                onProgress: onProgress,
+                onMerging: onMerging
+            )
+        } catch {
+            let text = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            guard isMergeFailure(text.lowercased()),
+                  let recovered = YTDLPOutputParser.parseMeta(from: text) else {
+                throw error
+            }
+            if let audioId = recovered.audioFormatId {
+                try downloadSeparatelyAndMerge(
+                    url: url,
+                    videoFormatId: recovered.videoFormatId,
+                    audioFormatId: audioId,
+                    outputPath: tempOutput,
+                    useCookies: useCookies,
+                    onProgress: onProgress,
+                    onMerging: onMerging
+                )
+                choice = recovered
+            } else {
+                throw error
+            }
+        }
+
+        if choice.extractor.lowercased() == "youtube" {
+            throw DownloadError.unsupportedMedia
+        }
+
+        let info = YTDLPInfo(id: choice.id, title: choice.title, formats: [])
+        let formats = SelectedFormats(
+            video: VideoFormat(
+                formatId: choice.videoFormatId,
+                ext: "mp4",
+                resolution: choice.resolution,
+                fps: choice.fps
+            ),
+            audio: VideoFormat(
+                formatId: choice.audioFormatId ?? choice.videoFormatId,
+                ext: "m4a"
+            )
+        )
+        let outputFile = (outputDirectory as NSString).appendingPathComponent(
+            OutputFilename.make(title: choice.title.isEmpty ? "video" : choice.title, videoId: choice.id.isEmpty ? "vk" : choice.id)
+        )
+        try installFinalOutput(from: tempOutput, to: outputFile)
+        return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)
+    }
+
+    private func downloadSortedOnce(
+        url: String,
+        adapter: SiteAdapterInfo,
+        outputPath: String,
+        useCookies: Bool,
+        onProgress: (@Sendable (Double) -> Void)?,
+        onMerging: (@Sendable () -> Void)?
+    ) throws -> ParsedFormatChoice {
+        guard let formatSpec = adapter.formatSpec, let formatSort = adapter.formatSort else {
+            throw DownloadError.invalidURL
+        }
+        let captured = LockedText()
+        var args = [
+            "-f", formatSpec,
+            "-S", formatSort,
+            "--merge-output-format", "mkv",
+            "--remux-video", "mkv",
+            "--ffmpeg-location", ffmpegPath,
+            "-o", outputPath,
+            "--no-warnings",
+            "--no-part",
+            "--force-overwrites",
+            "--newline",
+            "--progress",
+            "--progress-delta", "0.2",
+            "--progress-template", "download:%(progress._percent_str)s",
+            "--print", YTDLPOutputParser.metaPrintTemplate(),
+            url
+        ]
+        args.insert(contentsOf: adapter.extraArgs, at: args.count - 1)
+        args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        let result = try run(ytdlpPath, arguments: args, onOutput: { line in
+            captured.append(line)
+            if line.contains("[Merger]") || line.contains("[Fixup]") || line.contains("[Remux]") {
+                onMerging?()
+            }
+            if let progress = YTDLPProgress.parse(line) {
+                onProgress?(progress)
+            }
+        })
+        let output = combinedOutput(result) + "\n" + captured.value
+        if result.status != 0 {
+            let lower = output.lowercased()
+            if lower.contains("merger") || lower.contains("ffmpeg") || lower.contains("merge") || lower.contains("remux") {
+                if let choice = YTDLPOutputParser.parseMeta(from: output) {
+                    throw DownloadError.mergeFailed("\(choice.formatId)\n\(output)")
+                }
+                throw DownloadError.mergeFailed(output)
+            }
+            throw ErrorClassifier().classifyError(from: output)
+        }
+        guard FileManager.default.fileExists(atPath: outputPath) else {
+            throw DownloadError.downloadFailed("yt-dlp finished without writing \(outputPath)")
+        }
+        guard let choice = YTDLPOutputParser.parseMeta(from: output) else {
+            return ParsedFormatChoice(extractor: "vk", id: "", title: "", formatId: "bv*+ba")
+        }
+        return choice
+    }
+
     private func combinedOutput(_ result: ProcessResult) -> String {
         if result.stderr.isEmpty { return result.stdout }
         if result.stdout.isEmpty { return result.stderr }
         return result.stdout + "\n" + result.stderr
+    }
+
+    private final class LockedText: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = ""
+        func append(_ line: String) {
+            lock.lock()
+            storage += line + "\n"
+            lock.unlock()
+        }
+        var value: String {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
     }
 
     private func cookieArguments(useCookies: Bool) -> [String] {
