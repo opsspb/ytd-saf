@@ -270,6 +270,76 @@
                 button ? 'New lockup received a YD button' : 'Scrolled-in lockup was missed');
         }
 
+        function testCardClickQueues() {
+            YTD.insertButtonsOnCards();
+            const button = document.querySelector('#lockup-card .ytd-card-download-button');
+            const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+            if (button) button.dispatchEvent(clickEvent);
+            const queued = YTD.lastQueued && YTD.lastQueued.videoId === 'lockupVid12';
+            const passed = !!button && queued;
+            addResult('Card click queues download', passed,
+                passed ? 'Lockup YD click handed off lockupVid12' :
+                `button=${!!button} queued=${JSON.stringify(YTD.lastQueued)}`);
+        }
+
+        function testModernWatchActionsRow() {
+            const existing = document.getElementById('ytd-download-button');
+            if (existing) existing.remove();
+
+            const host = document.createElement('ytd-watch-metadata');
+            host.id = 'modern-watch-host';
+            host.innerHTML = `
+                <div id="top-level-buttons-computed" style="display:none;width:0;height:0"></div>
+                <div id="actions">
+                    <div id="actions-inner" style="display:flex;align-items:center;height:36px;width:320px">
+                        <like-button-view-model style="display:inline-block;width:48px;height:36px"></like-button-view-model>
+                        <yt-button-view-model style="display:inline-block;width:64px;height:36px">Share</yt-button-view-model>
+                        <yt-button-view-model style="display:inline-block;width:64px;height:36px">Save</yt-button-view-model>
+                    </div>
+                </div>`;
+            document.body.appendChild(host);
+            history.replaceState({}, '', '?v=modernWatch1');
+            YTD.insertButtonOnWatchPage();
+
+            const button = document.getElementById('ytd-download-button');
+            const inner = host.querySelector('#actions-inner');
+            const hidden = host.querySelector('#top-level-buttons-computed');
+            const inVisibleRow = !!(button && inner && inner.contains(button));
+            const notInHidden = !!(button && hidden && !hidden.contains(button));
+            addResult('Modern watch actions row', inVisibleRow && notInHidden,
+                inVisibleRow && notInHidden
+                    ? 'YD appended next to Like/Share, not in hidden leftover row'
+                    : `inVisible=${inVisibleRow} notHidden=${notInHidden} parent=${button && button.parentElement && button.parentElement.id}`);
+
+            if (button) {
+                button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                const queued = YTD.lastQueued && YTD.lastQueued.videoId === 'modernWatch1';
+                addResult('Watch pill click queues download', queued,
+                    queued ? 'Watch YD click handed off modernWatch1' : JSON.stringify(YTD.lastQueued));
+            } else {
+                addResult('Watch pill click queues download', false, 'No watch button to click');
+            }
+        }
+
+        function testRelocatesHiddenWatchButton() {
+            const stray = document.createElement('button');
+            stray.id = 'ytd-download-button';
+            stray.className = 'ytd-watch-download-button';
+            const hidden = document.createElement('div');
+            hidden.id = 'ghost-actions';
+            hidden.style.display = 'none';
+            hidden.appendChild(stray);
+            document.body.appendChild(hidden);
+
+            history.replaceState({}, '', '?v=relocateVid');
+            YTD.insertButtonOnWatchPage();
+            const button = document.getElementById('ytd-download-button');
+            const moved = button && button.parentElement && button.parentElement.id !== 'ghost-actions'
+                && getComputedStyle(button.parentElement).display !== 'none';
+            addResult('Relocates hidden watch YD', !!moved,
+                moved ? 'YD left the hidden leftover container' : 'YD still stuck in a hidden parent');
+        }
+
         testExtractVideoId();
         testButtonPreventsNavigation();
         testLegacyPlacement();
@@ -281,6 +351,9 @@
         testClickHandlerIsolation();
         testWatchPill();
         testInfiniteScroll();
+        testCardClickQueues();
+        testModernWatchActionsRow();
+        testRelocatesHiddenWatchButton();
 
         const summary = document.createElement('div');
         summary.style.cssText = 'margin-top: 30px; padding: 20px; background: #f5f5f5; border-radius: 4px; font-size: 18px; font-weight: bold;';

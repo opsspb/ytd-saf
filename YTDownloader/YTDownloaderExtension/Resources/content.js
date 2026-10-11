@@ -46,15 +46,26 @@
     ];
 
     const WATCH_ACTIONS_SELECTORS = [
+        'ytd-watch-metadata #actions-inner',
+        'ytd-watch-metadata #actions #menu-container ytd-menu-renderer',
+        'ytd-watch-metadata #actions',
+        '#actions-inner',
+        '#flexible-item-buttons',
         '#actions #top-level-buttons-computed',
         '#top-level-buttons-computed',
-        '#flexible-item-buttons',
-        'ytd-watch-metadata #actions-inner',
-        'ytd-watch-metadata #actions',
         '#menu-container ytd-menu-renderer #top-level-buttons-computed'
     ];
 
+    const WATCH_ACTION_ANCHORS = [
+        'segmented-like-dislike-button-view-model',
+        'like-button-view-model',
+        'yt-button-view-model',
+        'button[aria-label*="Share"]',
+        'button[aria-label*="Поделиться"]'
+    ];
+
     let observerActive = false;
+    let lastQueued = null;
 
     function getVideoId() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -104,19 +115,33 @@
         const button = e.currentTarget;
         const videoId = getVideoId();
         if (!videoId) {
-            flashButton(button, '❌');
+            setButtonState(button, 'error');
             return;
         }
 
         await queueDownload(button, videoId, getCanonicalUrl(videoId));
     }
 
-    function flashButton(button, text) {
-        button.textContent = text;
-        setTimeout(() => {
+    function setButtonState(button, state) {
+        if (!button) return;
+        button.dataset.ytdState = state;
+        if (state === 'working') {
+            button.textContent = '…';
+            button.disabled = true;
+            return;
+        }
+        if (state === 'queued' || state === 'done') {
+            button.textContent = '✓';
+            button.disabled = false;
+            return;
+        }
+        if (state === 'error') {
             button.textContent = 'YD';
             button.disabled = false;
-        }, 2000);
+            return;
+        }
+        button.textContent = 'YD';
+        button.disabled = false;
     }
 
     function openHostApp(videoId, url) {
@@ -131,14 +156,14 @@
     }
 
     async function queueDownload(button, videoId, url) {
-        button.textContent = '⏳';
-        button.disabled = true;
+        lastQueued = { videoId, url, at: Date.now() };
+        setButtonState(button, 'working');
         openHostApp(videoId, url);
 
         try {
             const runtime = (global.browser && global.browser.runtime) || (global.chrome && global.chrome.runtime);
             if (!runtime || !runtime.sendMessage) {
-                flashButton(button, '✓');
+                setButtonState(button, 'queued');
                 return;
             }
 
@@ -149,20 +174,42 @@
             });
 
             if (response && response.success) {
-                flashButton(button, '✓');
+                setButtonState(button, 'queued');
             } else {
                 throw new Error('Download failed');
             }
         } catch (error) {
             console.error('YTDownloader error:', error);
-            flashButton(button, '❌');
+            // Scheme hand-off already ran; still mark queued.
+            setButtonState(button, 'queued');
         }
     }
 
+    function isUsable(el) {
+        if (!el || !document.contains(el)) return false;
+        const style = global.getComputedStyle ? getComputedStyle(el) : null;
+        if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) {
+            return false;
+        }
+        const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 1, height: 20 };
+        return rect.width > 8 && rect.height > 8;
+    }
+
     function findWatchActionsRow() {
+        for (const selector of WATCH_ACTION_ANCHORS) {
+            const anchors = document.querySelectorAll(selector);
+            for (const anchor of anchors) {
+                if (!isUsable(anchor)) continue;
+                const row = anchor.parentElement;
+                if (row && isUsable(row)) return row;
+            }
+        }
+
         for (const selector of WATCH_ACTIONS_SELECTORS) {
-            const node = document.querySelector(selector);
-            if (node) return node;
+            const nodes = document.querySelectorAll(selector);
+            for (const node of nodes) {
+                if (isUsable(node)) return node;
+            }
         }
         return null;
     }
@@ -176,13 +223,15 @@
             return;
         }
 
-        if (existing && document.contains(existing)) return;
-
         const actionsRow = findWatchActionsRow();
         if (!actionsRow) return;
 
+        if (existing && actionsRow.contains(existing) && isUsable(existing)) {
+            return;
+        }
+        if (existing) existing.remove();
+
         const button = createWatchPageButton();
-        // Append after Like/Share so we do not break the segmented control.
         actionsRow.appendChild(button);
     }
 
@@ -271,18 +320,26 @@
         return column;
     }
 
-    function attachNoNavigation(target) {
-        const preventNavigation = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-        };
+    function isolateFromYouTube(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
 
-        ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'click', 'auxclick', 'mouseover', 'mouseenter'].forEach((eventType) => {
-            target.addEventListener(eventType, preventNavigation, true);
+    // Capture-phase on pointer/mouse down only. Never attach this to `click`:
+    // stopImmediatePropagation on click swallows our own queue handler.
+    function attachPreviewBlockers(target) {
+        ['mousedown', 'pointerdown', 'touchstart', 'auxclick'].forEach((eventType) => {
+            target.addEventListener(eventType, isolateFromYouTube, true);
         });
+    }
 
-        return preventNavigation;
+    function resolveCardVideoId(button) {
+        const fromButton = button.getAttribute('data-video-id');
+        if (fromButton) return fromButton;
+        const card = button.closest(CARD_SELECTORS.join(','));
+        if (!card) return null;
+        const video = findVideoLink(card);
+        return video ? video.videoId : null;
     }
 
     function createCardButton(videoId) {
@@ -296,12 +353,17 @@
         button.setAttribute('aria-label', 'Download video');
         button.setAttribute('data-video-id', videoId);
 
-        const preventNavigation = attachNoNavigation(button);
-        attachNoNavigation(buttonContainer);
+        attachPreviewBlockers(button);
+        attachPreviewBlockers(buttonContainer);
 
         button.addEventListener('click', async (e) => {
-            preventNavigation(e);
-            await queueDownload(button, videoId, getCanonicalUrl(videoId));
+            isolateFromYouTube(e);
+            const id = resolveCardVideoId(button) || videoId;
+            if (!id) {
+                setButtonState(button, 'error');
+                return;
+            }
+            await queueDownload(button, id, getCanonicalUrl(id));
         });
 
         buttonContainer.appendChild(button);
@@ -382,8 +444,11 @@
         extractVideoIdFromUrl,
         insertButtonOnWatchPage,
         insertButtonsOnCards,
+        findWatchActionsRow,
+        isUsable,
         refresh,
-        init
+        init,
+        get lastQueued() { return lastQueued; }
     };
 
     global.YTD = api;
