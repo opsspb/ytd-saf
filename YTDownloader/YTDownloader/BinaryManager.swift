@@ -9,27 +9,36 @@ class BinaryManager: ObservableObject {
     @Published var setupError: String?
 
     private var paths: BinaryPaths?
+    private var inFlight: Task<Void, Never>?
 
     func setup() async {
+        if isReady, setupError == nil { return }
+        if let inFlight {
+            await inFlight.value
+            return
+        }
+
+        let task = Task { await self.performSetup() }
+        inFlight = task
+        await task.value
+        inFlight = nil
+    }
+
+    private func performSetup() async {
         setupError = nil
         isReady = false
         setupStatus = "Checking binaries..."
         setupProgress = 0.05
 
-        var bootstrap = BinaryBootstrap()
-        bootstrap.onProgress = { status, progress in
-            Task { @MainActor in
-                self.setupStatus = status
-                self.setupProgress = progress
-            }
-        }
-
         do {
-            let result = try await bootstrap.setup()
+            let result = try await Task.detached(priority: .userInitiated) {
+                try await BinaryBootstrap().setup()
+            }.value
+
             paths = result
             isReady = true
             setupError = nil
-            setupStatus = result.source == .homebrew ? "Using Homebrew binaries" : "Ready"
+            setupStatus = "Ready"
             setupProgress = 1.0
         } catch {
             paths = nil

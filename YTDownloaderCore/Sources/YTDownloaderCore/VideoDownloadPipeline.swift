@@ -50,12 +50,67 @@ public struct VideoDownloadPipeline: Sendable {
         return try JSONDecoder().decode(YTDLPInfo.self, from: Data(result.stdout.utf8))
     }
 
-    public func downloadFormat(url: String, formatId: String, outputPath: String, useCookies: Bool) throws {
-        var args = ["-f", formatId, "-o", outputPath, "--no-warnings", "--no-part", url]
+    public func downloadFormat(
+        url: String,
+        formatId: String,
+        outputPath: String,
+        useCookies: Bool,
+        fallbackFormat: String? = nil,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) throws {
+        var lastError: Error = DownloadError.downloadFailed("No format available")
+        var candidates = [formatId]
+        if let fallbackFormat, fallbackFormat != formatId {
+            candidates.append(fallbackFormat)
+        }
+        for format in candidates {
+            do {
+                try downloadOnce(
+                    url: url,
+                    formatId: format,
+                    outputPath: outputPath,
+                    useCookies: useCookies,
+                    onProgress: onProgress
+                )
+                return
+            } catch {
+                lastError = error
+                let text = (error as? LocalizedError)?.errorDescription?.lowercased() ?? "\(error)".lowercased()
+                if text.contains("format is not available") || text.contains("requested format") {
+                    continue
+                }
+                throw error
+            }
+        }
+        throw lastError
+    }
+
+    private func downloadOnce(
+        url: String,
+        formatId: String,
+        outputPath: String,
+        useCookies: Bool,
+        onProgress: (@Sendable (Double) -> Void)?
+    ) throws {
+        var args = [
+            "-f", formatId,
+            "-o", outputPath,
+            "--no-warnings",
+            "--no-part",
+            "--newline",
+            "--progress",
+            "--progress-template", "download:%(progress._percent_str)s",
+            url
+        ]
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
-        let result = try run(ytdlpPath, arguments: args)
+        let result = try run(ytdlpPath, arguments: args, onOutput: { line in
+            if let progress = YTDLPProgress.parse(line) {
+                onProgress?(progress)
+            }
+        })
         if result.status != 0 {
-            throw ErrorClassifier().classifyError(from: result.stderr)
+            let output = result.stderr.isEmpty ? result.stdout : result.stderr
+            throw ErrorClassifier().classifyError(from: output)
         }
     }
 
@@ -85,11 +140,24 @@ public struct VideoDownloadPipeline: Sendable {
         let videoFile = tempDir.appendingPathComponent("video.\(formats.video.ext)").path
         let audioFile = tempDir.appendingPathComponent("audio.\(formats.audio.ext)").path
 
-        try downloadFormat(url: url, formatId: formats.video.formatId, outputPath: videoFile, useCookies: useCookies)
-        try downloadFormat(url: url, formatId: formats.audio.formatId, outputPath: audioFile, useCookies: useCookies)
+        try downloadFormat(
+            url: url,
+            formatId: formats.video.formatId,
+            outputPath: videoFile,
+            useCookies: useCookies,
+            fallbackFormat: "bestvideo*"
+        )
+        try downloadFormat(
+            url: url,
+            formatId: formats.audio.formatId,
+            outputPath: audioFile,
+            useCookies: useCookies,
+            fallbackFormat: "bestaudio"
+        )
 
-        let sanitizedTitle = info.title.replacingOccurrences(of: "[^a-zA-Z0-9_\\-\\s]", with: "", options: .regularExpression)
-        let outputFile = (outputDirectory as NSString).appendingPathComponent("\(sanitizedTitle)_\(info.id).mkv")
+        let outputFile = (outputDirectory as NSString).appendingPathComponent(
+            OutputFilename.make(title: info.title, videoId: info.id)
+        )
         try merge(videoPath: videoFile, audioPath: audioFile, outputPath: outputFile)
 
         return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)
@@ -116,35 +184,21 @@ public struct VideoDownloadPipeline: Sendable {
         let status: Int32
     }
 
-    private func run(_ executable: String, arguments: [String]) throws -> ProcessResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-
-        // Write to temp files instead of Pipe(). yt-dlp -J emits large JSON and
-        // a full unread pipe deadlocks the child against waitUntilExit().
-        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-out-\(UUID().uuidString)")
-        let errURL = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-err-\(UUID().uuidString)")
-        FileManager.default.createFile(atPath: outURL.path, contents: nil)
-        FileManager.default.createFile(atPath: errURL.path, contents: nil)
-        defer {
-            try? FileManager.default.removeItem(at: outURL)
-            try? FileManager.default.removeItem(at: errURL)
-        }
-
-        let outHandle = try FileHandle(forWritingTo: outURL)
-        let errHandle = try FileHandle(forWritingTo: errURL)
-        process.standardOutput = outHandle
-        process.standardError = errHandle
-        try process.run()
-        process.waitUntilExit()
-        try outHandle.close()
-        try errHandle.close()
-
-        return ProcessResult(
-            stdout: (try? String(contentsOf: outURL, encoding: .utf8)) ?? "",
-            stderr: (try? String(contentsOf: errURL, encoding: .utf8)) ?? "",
-            status: process.terminationStatus
+    private func run(
+        _ executable: String,
+        arguments: [String],
+        onOutput: (@Sendable (String) -> Void)? = nil
+    ) throws -> ProcessResult {
+        let timeout: TimeInterval = arguments.contains("-J") || arguments.contains("-F") ? 90 : 600
+        let result = try ProcessRunner.run(
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout,
+            onOutput: onOutput
         )
+        if result.timedOut {
+            throw DownloadError.unknown("Timed out running \(executable)")
+        }
+        return ProcessResult(stdout: result.stdout, stderr: result.stderr, status: result.status)
     }
 }

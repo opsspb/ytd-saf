@@ -21,6 +21,9 @@
 		AA0000010000000000000103 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000122 /* content.js */; };
 		AA0000010000000000000104 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000123 /* background.js */; };
 		AA0000010000000000000105 /* styles.css in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000124 /* styles.css */; };
+		AA0000010000000000000106 /* icon-48.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000127 /* icon-48.png */; };
+		AA0000010000000000000107 /* icon-96.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000128 /* icon-96.png */; };
+		AA0000010000000000000108 /* icon-128.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000129 /* icon-128.png */; };
 		AA0000010000000000000151 /* YTDownloaderExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000141 /* YTDownloaderExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -56,7 +59,7 @@
 		AA0000010000000000000015 /* NativeMessaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMessaging.swift; sourceTree = "<group>"; };
 		AA0000010000000000000016 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AA0000010000000000000017 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		AA0000010000000000000021 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA0000010000000000000021 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = YTDownloader/Resources/Assets.xcassets; sourceTree = "<group>"; };
 		AA0000010000000000000022 /* YTDownloader.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YTDownloader.entitlements; sourceTree = "<group>"; };
 		AA0000010000000000000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0000010000000000000111 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
@@ -64,6 +67,9 @@
 		AA0000010000000000000122 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = content.js; sourceTree = "<group>"; };
 		AA0000010000000000000123 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = background.js; sourceTree = "<group>"; };
 		AA0000010000000000000124 /* styles.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = styles.css; sourceTree = "<group>"; };
+		AA0000010000000000000127 /* icon-48.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "icon-48.png"; sourceTree = "<group>"; };
+		AA0000010000000000000128 /* icon-96.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "icon-96.png"; sourceTree = "<group>"; };
+		AA0000010000000000000129 /* icon-128.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "icon-128.png"; sourceTree = "<group>"; };
 		AA0000010000000000000125 /* YTDownloaderExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YTDownloaderExtension.entitlements; sourceTree = "<group>"; };
 		AA0000010000000000000126 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0000010000000000000131 /* YTDownloader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YTDownloader.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -102,7 +108,6 @@
 				AA0000010000000000000016 /* SettingsView.swift */,
 				AA0000010000000000000022 /* YTDownloader.entitlements */,
 				AA0000010000000000000023 /* Info.plist */,
-				AA0000010000000000000181 /* Resources */,
 			);
 			path = "YTDownloader/YTDownloader";
 			sourceTree = "<group>";
@@ -127,14 +132,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		AA0000010000000000000181 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				AA0000010000000000000021 /* Assets.xcassets */,
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
 		AA0000010000000000000182 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -142,6 +139,9 @@
 				AA0000010000000000000122 /* content.js */,
 				AA0000010000000000000123 /* background.js */,
 				AA0000010000000000000124 /* styles.css */,
+				AA0000010000000000000127 /* icon-48.png */,
+				AA0000010000000000000128 /* icon-96.png */,
+				AA0000010000000000000129 /* icon-128.png */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -151,6 +151,7 @@
 			children = (
 				AA0000010000000000000171 /* YTDownloader */,
 				AA0000010000000000000172 /* YTDownloaderExtension */,
+				AA0000010000000000000021 /* Assets.xcassets */,
 				AA0000010000000000000173 /* Products */,
 				AA0000010000000000000192 /* Packages */,
 			);
@@ -263,6 +264,9 @@
 				AA0000010000000000000103 /* content.js in Resources */,
 				AA0000010000000000000104 /* background.js in Resources */,
 				AA0000010000000000000105 /* styles.css in Resources */,
+				AA0000010000000000000106 /* icon-48.png in Resources */,
+				AA0000010000000000000107 /* icon-96.png in Resources */,
+				AA0000010000000000000108 /* icon-128.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

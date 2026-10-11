@@ -38,6 +38,10 @@ public struct ErrorClassifier {
         if lowercased.contains("no video formats") || lowercased.contains("no suitable formats") {
             return .noSuitableFormats
         }
+
+        if lowercased.contains("requested format is not available") || lowercased.contains("format is not available") {
+            return .downloadFailed(output)
+        }
         
         return .unknown(output)
     }

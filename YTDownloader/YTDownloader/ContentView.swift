@@ -21,6 +21,7 @@ struct ContentView: View {
         } detail: {
             if let selectedItem = downloadManager.selectedItem {
                 DownloadDetailView(item: selectedItem)
+                    .id(selectedItem.id)
             } else {
                 Text("Select a download to view details")
                     .foregroundColor(.secondary)
@@ -140,10 +141,10 @@ struct DownloadQueueView: View {
     @EnvironmentObject var downloadManager: DownloadManager
     
     var body: some View {
-        List(selection: $downloadManager.selectedItem) {
+        List(selection: $downloadManager.selectedItemID) {
             ForEach(downloadManager.queue) { item in
                 DownloadItemRow(item: item)
-                    .tag(item)
+                    .tag(item.id)
             }
         }
         .listStyle(.sidebar)
@@ -198,6 +199,9 @@ struct DownloadItemRow: View {
         case .completed:
             return "Completed"
         case .failed:
+            if let error = item.error, !error.isEmpty {
+                return "Failed: \(error)"
+            }
             return "Failed"
         }
     }
@@ -238,13 +242,14 @@ struct DownloadDetailView: View {
                     .frame(maxWidth: 300)
             }
             
-            if let error = item.error {
+            if let error = item.error, !error.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Error")
                         .font(.headline)
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
+                        .textSelection(.enabled)
                 }
             }
             

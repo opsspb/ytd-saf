@@ -26,5 +26,13 @@
     "48": "icon-48.png",
     "96": "icon-96.png",
     "128": "icon-128.png"
+  },
+  "action": {
+    "default_title": "YTDownloader",
+    "default_icon": {
+      "48": "icon-48.png",
+      "96": "icon-96.png",
+      "128": "icon-128.png"
+    }
   }
 }

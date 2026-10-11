@@ -100,10 +100,10 @@ public struct BinaryBootstrap: Sendable {
     }
 
     public func locateExisting() -> BinaryPaths? {
-        if preferHomebrew, let paths = locateHomebrew(), sanityCheck(paths) {
+        if let paths = locateInstalled() {
             return paths
         }
-        if let paths = locateInstalled(), sanityCheck(paths) {
+        if preferHomebrew, let paths = locateHomebrew() {
             return paths
         }
         return nil
@@ -112,15 +112,16 @@ public struct BinaryBootstrap: Sendable {
     public func setup() async throws -> BinaryPaths {
         try FileManager.default.createDirectory(at: binariesDirectory, withIntermediateDirectories: true)
 
-        report("Checking for Homebrew binaries...", 0.1)
-        if preferHomebrew, let paths = locateHomebrew(), sanityCheck(paths) {
-            report("Using Homebrew binaries", 1.0)
+        report("Checking installed binaries...", 0.1)
+        if let paths = locateInstalled() {
+            _ = quickVersionCheck(paths, timeout: 4)
+            report("Using installed binaries", 1.0)
             return paths
         }
 
-        report("Checking installed binaries...", 0.2)
-        if let paths = locateInstalled(), sanityCheck(paths) {
-            report("Using installed binaries", 1.0)
+        report("Checking for Homebrew binaries...", 0.2)
+        if preferHomebrew, let paths = locateHomebrew(), quickVersionCheck(paths, timeout: 4) {
+            report("Using Homebrew binaries", 1.0)
             return paths
         }
 
@@ -135,7 +136,7 @@ public struct BinaryBootstrap: Sendable {
 
         report("Verifying binaries...", 0.95)
         let paths = BinaryPaths(ytdlp: ytdlp, ffmpeg: ffmpeg, ffprobe: ffprobe, source: .downloaded)
-        guard sanityCheck(paths) else {
+        guard quickVersionCheck(paths, timeout: 8) else {
             throw DownloadError.bootstrapFailed(
                 "Downloaded yt-dlp/ffmpeg/ffprobe could not be executed. Check Gatekeeper or try again."
             )
@@ -275,14 +276,12 @@ public struct BinaryBootstrap: Sendable {
     }
 
     private func unzip(_ zipURL: URL, to destinationURL: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-o", zipURL.path, "-d", destinationURL.path]
-        let err = Pipe()
-        process.standardError = err
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        let result = try ProcessRunner.run(
+            executable: "/usr/bin/unzip",
+            arguments: ["-o", zipURL.path, "-d", destinationURL.path],
+            timeout: 60
+        )
+        guard !result.timedOut, result.status == 0 else {
             throw DownloadError.bootstrapFailed("Failed to unzip \(zipURL.lastPathComponent)")
         }
     }
@@ -298,31 +297,28 @@ public struct BinaryBootstrap: Sendable {
     }
 
     private func clearQuarantine(at path: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-        process.arguments = ["-dr", "com.apple.quarantine", path]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try? process.run()
-        process.waitUntilExit()
+        _ = try? ProcessRunner.run(
+            executable: "/usr/bin/xattr",
+            arguments: ["-dr", "com.apple.quarantine", path],
+            timeout: 3
+        )
     }
 
     public func sanityCheck(_ paths: BinaryPaths) -> Bool {
-        runs(paths.ytdlp, arguments: ["--version"])
-            && runs(paths.ffmpeg, arguments: ["-version"])
-            && runs(paths.ffprobe, arguments: ["-version"])
+        quickVersionCheck(paths, timeout: 8)
     }
 
-    private func runs(_ executable: String, arguments: [String]) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
+    @discardableResult
+    private func quickVersionCheck(_ paths: BinaryPaths, timeout: TimeInterval) -> Bool {
+        runs(paths.ytdlp, arguments: ["--version"], timeout: timeout)
+            && runs(paths.ffmpeg, arguments: ["-version"], timeout: timeout)
+            && runs(paths.ffprobe, arguments: ["-version"], timeout: timeout)
+    }
+
+    private func runs(_ executable: String, arguments: [String], timeout: TimeInterval) -> Bool {
         do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
+            let result = try ProcessRunner.run(executable: executable, arguments: arguments, timeout: timeout)
+            return !result.timedOut && result.status == 0
         } catch {
             return false
         }

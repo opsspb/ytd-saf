@@ -7,8 +7,8 @@ public struct FormatSelector {
     /// Video: (a) highest resolution, (b) highest fps, (c) highest video bitrate
     /// Audio: original language track with highest audio bitrate
     public func selectBestFormats(from info: YTDLPInfo) throws -> SelectedFormats {
-        let videoFormats = info.formats.filter { $0.hasVideo && $0.isVideoOnly }
-        let audioFormats = info.formats.filter { $0.hasAudio && $0.isAudioOnly }
+        let videoFormats = info.formats.filter { isDownloadableVideo($0) }
+        let audioFormats = info.formats.filter { isDownloadableAudio($0) }
         
         guard !videoFormats.isEmpty else {
             throw DownloadError.noSuitableFormats
@@ -74,5 +74,23 @@ public struct FormatSelector {
         }
         
         return sorted[0]
+    }
+
+    private func isDownloadableVideo(_ format: VideoFormat) -> Bool {
+        guard format.hasVideo && format.isVideoOnly else { return false }
+        return isConcreteMedia(format)
+    }
+
+    private func isDownloadableAudio(_ format: VideoFormat) -> Bool {
+        guard format.hasAudio && format.isAudioOnly else { return false }
+        return isConcreteMedia(format)
+    }
+
+    private func isConcreteMedia(_ format: VideoFormat) -> Bool {
+        let ext = format.ext.lowercased()
+        if ext == "mhtml" || ext.hasPrefix("sb") { return false }
+        let note = (format.formatNote ?? "").lowercased()
+        if note.contains("storyboard") || note.contains("preview") { return false }
+        return true
     }
 }

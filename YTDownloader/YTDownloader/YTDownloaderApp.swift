@@ -8,14 +8,14 @@ struct YTDownloaderApp: App {
 
     init() {
         let downloads = DownloadManager()
+        downloads.attachProgressBridge()
         _downloadManager = StateObject(wrappedValue: downloads)
         _binaryManager = StateObject(wrappedValue: BinaryManager())
-        // Attach before the first scene so a launch URL is not dropped.
         NativeMessaging.shared.attach(downloadManager: downloads)
     }
 
     var body: some Scene {
-        WindowGroup {
+        Window("YTDownloader", id: "main") {
             ContentView()
                 .environmentObject(downloadManager)
                 .environmentObject(binaryManager)
@@ -24,12 +24,14 @@ struct YTDownloaderApp: App {
                 }
                 .task {
                     await binaryManager.setup()
+                    downloadManager.resumeQueue()
                 }
         }
+        .defaultSize(width: 860, height: 560)
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About YTDownloader") {
-                }
+                Button("About YTDownloader") {}
             }
         }
 

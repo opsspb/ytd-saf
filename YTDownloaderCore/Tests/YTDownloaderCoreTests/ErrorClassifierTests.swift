@@ -83,6 +83,15 @@ final class ErrorClassifierTests: XCTestCase {
         XCTAssertFalse(error.requiresCookies)
     }
     
+    func testClassifyRequestedFormatUnavailable() {
+        let error = classifier.classifyError(from: "ERROR: [youtube] 39l1VzQit3o: Requested format is not available. Use --list-formats")
+        if case .downloadFailed(let msg) = error {
+            XCTAssertTrue(msg.contains("Requested format is not available"))
+        } else {
+            XCTFail("Expected downloadFailed, got \(error)")
+        }
+    }
+
     func testClassifyUnknownError() {
         let error = classifier.classifyError(from: "Some random unexpected error")
         if case .unknown(let msg) = error {

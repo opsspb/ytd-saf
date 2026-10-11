@@ -5,32 +5,44 @@ import YTDownloaderCore
 @MainActor
 class DownloadManager: ObservableObject {
     @Published var queue: [DownloadItem] = []
-    @Published var selectedItem: DownloadItem?
+    @Published var selectedItemID: UUID?
     @Published var settings = DownloadSettings()
-    
+
     private let formatSelector = FormatSelector()
     private let retryStrategy = RetryStrategy()
-    
+
     private var activeDownloads = 0
     private var retryStates: [UUID: RetryState] = [:]
-    
     private let queueFile: URL
-    
+
+    var selectedItem: DownloadItem? {
+        guard let selectedItemID else { return nil }
+        return queue.first(where: { $0.id == selectedItemID })
+    }
+
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let appFolder = appSupport.appendingPathComponent("YTDownloader")
         try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
-        
         queueFile = appFolder.appendingPathComponent("queue.json")
-        
         loadSettings()
         loadQueue()
     }
-    
+
     func addDownload(videoId: String, url: String) {
-        if queue.contains(where: { item in
-            item.videoId == videoId && (item.status == .queued || item.status == .downloading || item.status == .merging)
-        }) {
+        if queue.contains(where: { $0.videoId == videoId && isActive($0.status) }) {
+            return
+        }
+
+        if let index = queue.firstIndex(where: { $0.videoId == videoId && $0.status == .failed }) {
+            var item = queue[index]
+            item.status = .queued
+            item.progress = 0
+            item.error = nil
+            item.completedAt = nil
+            queue[index] = item
+            saveQueue()
+            processQueue()
             return
         }
 
@@ -39,60 +51,91 @@ class DownloadManager: ObservableObject {
         saveQueue()
         processQueue()
     }
-    
-    func updateItemStatus(id: UUID, status: DownloadStatus, progress: Double = 0, error: String? = nil, outputPath: String? = nil) {
+
+    func updateItemStatus(
+        id: UUID,
+        status: DownloadStatus,
+        progress: Double? = nil,
+        error: String? = nil,
+        outputPath: String? = nil
+    ) {
         guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
-        
+
         var item = queue[index]
         item.status = status
-        item.progress = progress
-        item.error = error
-        item.outputPath = outputPath
-        
+        if let progress {
+            item.progress = progress
+        }
+        if let error {
+            item.error = error
+        }
+        if let outputPath {
+            item.outputPath = outputPath
+        }
+
         if status == .completed || status == .failed {
             item.completedAt = Date()
         }
-        
+
         queue[index] = item
         saveQueue()
-        
+
         if status == .completed || status == .failed {
-            activeDownloads -= 1
+            activeDownloads = max(0, activeDownloads - 1)
             processQueue()
         }
     }
-    
+
+    func updateProgress(id: UUID, progress: Double) {
+        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        var item = queue[index]
+        item.progress = min(max(progress, item.progress), 1)
+        queue[index] = item
+    }
+
+    private func isActive(_ status: DownloadStatus) -> Bool {
+        status == .queued || status == .downloading || status == .merging
+    }
+
     private func processQueue() {
         let maxConcurrent = settings.maxConcurrentDownloads
-        
         guard activeDownloads < maxConcurrent else { return }
-        
         guard let nextItem = queue.first(where: { $0.status == .queued }) else { return }
-        
+
         activeDownloads += 1
         Task {
             await downloadItem(nextItem)
         }
     }
-    
+
     private func downloadItem(_ item: DownloadItem) async {
-        updateItemStatus(id: item.id, status: .downloading)
-        
+        updateItemStatus(id: item.id, status: .downloading, progress: 0)
+
         do {
-            let pipeline = try makePipeline()
-            let info = try pipeline.fetchInfo(url: item.url, useCookies: false)
-            
-            updateTitle(id: item.id, title: info.title)
-            
-            let formats = try formatSelector.selectBestFormats(from: info)
-            
+            let settings = self.settings
+            let result = try await Task.detached(priority: .userInitiated) { [formatSelector] in
+                guard let paths = BinaryBootstrap().locateExisting() else {
+                    throw DownloadError.ytdlpNotFound
+                }
+                let pipeline = VideoDownloadPipeline(
+                    ytdlpPath: paths.ytdlp,
+                    ffmpegPath: paths.ffmpeg,
+                    cookieMode: settings.cookieMode,
+                    cookieFilePath: settings.cookieFilePath
+                )
+                let info = try pipeline.fetchInfo(url: item.url, useCookies: false)
+                let formats = try formatSelector.selectBestFormats(from: info)
+                return (pipeline, info, formats)
+            }.value
+
+            updateTitle(id: item.id, title: result.1.title)
+
             try await downloadAndMerge(
                 item: item,
-                info: info,
-                formats: formats,
-                pipeline: pipeline
+                info: result.1,
+                formats: result.2,
+                pipeline: result.0
             )
-            
         } catch let error as DownloadError where error.requiresCookies {
             await retryWithCookies(item: item, error: error)
         } catch let error as DownloadError where error.isTransient {
@@ -102,23 +145,35 @@ class DownloadManager: ObservableObject {
             updateItemStatus(id: item.id, status: .failed, error: downloadError.errorDescription)
         }
     }
-    
+
     private func retryWithCookies(item: DownloadItem, error: DownloadError) async {
         guard settings.cookieMode != .none else {
             updateItemStatus(id: item.id, status: .failed, error: error.errorDescription)
             return
         }
-        
+
         do {
-            let pipeline = try makePipeline()
-            let info = try pipeline.fetchInfo(url: item.url, useCookies: true)
-            let formats = try formatSelector.selectBestFormats(from: info)
-            
+            let settings = self.settings
+            let result = try await Task.detached(priority: .userInitiated) { [formatSelector] in
+                guard let paths = BinaryBootstrap().locateExisting() else {
+                    throw DownloadError.ytdlpNotFound
+                }
+                let pipeline = VideoDownloadPipeline(
+                    ytdlpPath: paths.ytdlp,
+                    ffmpegPath: paths.ffmpeg,
+                    cookieMode: settings.cookieMode,
+                    cookieFilePath: settings.cookieFilePath
+                )
+                let info = try pipeline.fetchInfo(url: item.url, useCookies: true)
+                let formats = try formatSelector.selectBestFormats(from: info)
+                return (pipeline, info, formats)
+            }.value
+
             try await downloadAndMerge(
                 item: item,
-                info: info,
-                formats: formats,
-                pipeline: pipeline,
+                info: result.1,
+                formats: result.2,
+                pipeline: result.0,
                 useCookies: true
             )
         } catch {
@@ -126,23 +181,22 @@ class DownloadManager: ObservableObject {
             updateItemStatus(id: item.id, status: .failed, error: downloadError.errorDescription)
         }
     }
-    
+
     private func retryIfPossible(item: DownloadItem, error: DownloadError) async {
         var state = retryStates[item.id] ?? RetryState()
         state.recordAttempt(error: error)
         retryStates[item.id] = state
-        
+
         guard retryStrategy.shouldRetry(error: error, attempt: state.attempt) else {
             updateItemStatus(id: item.id, status: .failed, error: error.errorDescription)
             return
         }
-        
+
         let delay = retryStrategy.delay(forAttempt: state.attempt)
         try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-        
         await downloadItem(item)
     }
-    
+
     private func updateTitle(id: UUID, title: String) {
         guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
         var item = queue[index]
@@ -150,19 +204,7 @@ class DownloadManager: ObservableObject {
         queue[index] = item
         saveQueue()
     }
-    
-    private func makePipeline() throws -> VideoDownloadPipeline {
-        guard let paths = BinaryBootstrap().locateExisting() else {
-            throw DownloadError.ytdlpNotFound
-        }
-        return VideoDownloadPipeline(
-            ytdlpPath: paths.ytdlp,
-            ffmpegPath: paths.ffmpeg,
-            cookieMode: settings.cookieMode,
-            cookieFilePath: settings.cookieFilePath
-        )
-    }
-    
+
     private func downloadAndMerge(
         item: DownloadItem,
         info: YTDLPInfo,
@@ -171,65 +213,131 @@ class DownloadManager: ObservableObject {
         useCookies: Bool = false
     ) async throws {
         let downloadDir = (settings.downloadDirectory as NSString).expandingTildeInPath
-        try FileManager.default.createDirectory(atPath: downloadDir, withIntermediateDirectories: true)
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-\(item.videoId)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let itemID = item.id
+        let url = item.url
+        let videoId = item.videoId
 
-        let videoFile = tempDir.appendingPathComponent("video.\(formats.video.ext)").path
-        let audioFile = tempDir.appendingPathComponent("audio.\(formats.audio.ext)").path
-        
-        try pipeline.downloadFormat(
-            url: item.url,
-            formatId: formats.video.formatId,
-            outputPath: videoFile,
-            useCookies: useCookies
-        )
-        
-        try pipeline.downloadFormat(
-            url: item.url,
-            formatId: formats.audio.formatId,
-            outputPath: audioFile,
-            useCookies: useCookies
-        )
-        
-        updateItemStatus(id: item.id, status: .merging)
-        
-        let sanitizedTitle = info.title.replacingOccurrences(of: "[^a-zA-Z0-9_\\-\\s]", with: "", options: .regularExpression)
-        let outputFile = (downloadDir as NSString).appendingPathComponent("\(sanitizedTitle)_\(item.videoId).mkv")
-        
-        try pipeline.merge(videoPath: videoFile, audioPath: audioFile, outputPath: outputFile)
-        
-        updateItemStatus(id: item.id, status: .completed, progress: 1.0, outputPath: outputFile)
+        try await Task.detached(priority: .userInitiated) { () async throws in
+            try FileManager.default.createDirectory(atPath: downloadDir, withIntermediateDirectories: true)
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-\(videoId)-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            let videoFile = tempDir.appendingPathComponent("video.\(formats.video.ext)").path
+            let audioFile = tempDir.appendingPathComponent("audio.\(formats.audio.ext)").path
+
+            try pipeline.downloadFormat(
+                url: url,
+                formatId: formats.video.formatId,
+                outputPath: videoFile,
+                useCookies: useCookies,
+                fallbackFormat: "bestvideo*",
+                onProgress: { progress in
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.update(id: itemID, fraction: progress * 0.7)
+                    }
+                }
+            )
+
+            try pipeline.downloadFormat(
+                url: url,
+                formatId: formats.audio.formatId,
+                outputPath: audioFile,
+                useCookies: useCookies,
+                fallbackFormat: "bestaudio",
+                onProgress: { progress in
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.update(id: itemID, fraction: 0.7 + progress * 0.2)
+                    }
+                }
+            )
+
+            await MainActor.run {
+                DownloadProgressBridge.shared.merging(id: itemID)
+            }
+
+            let outputFile = (downloadDir as NSString).appendingPathComponent(
+                OutputFilename.make(title: info.title, videoId: videoId)
+            )
+            try pipeline.merge(videoPath: videoFile, audioPath: audioFile, outputPath: outputFile)
+
+            await MainActor.run {
+                DownloadProgressBridge.shared.completed(id: itemID, path: outputFile)
+            }
+        }.value
     }
-    
+
+    func attachProgressBridge() {
+        DownloadProgressBridge.shared.handler = { [weak self] id, status, progress, path in
+            guard let self else { return }
+            if status == .completed {
+                self.updateItemStatus(id: id, status: .completed, progress: 1, outputPath: path)
+            } else if status == .merging {
+                self.updateItemStatus(id: id, status: .merging, progress: progress)
+            } else {
+                self.updateProgress(id: id, progress: progress)
+            }
+        }
+    }
+
+    func resumeQueue() {
+        processQueue()
+    }
+
     private func loadSettings() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let settingsFile = appSupport.appendingPathComponent("YTDownloader/settings.json")
-        
-        guard let data = try? Data(contentsOf: settingsFile) else { return }
-        guard let loaded = try? JSONDecoder().decode(DownloadSettings.self, from: data) else { return }
-        
+        guard let data = try? Data(contentsOf: settingsFile),
+              let loaded = try? JSONDecoder().decode(DownloadSettings.self, from: data) else {
+            return
+        }
         settings = loaded
     }
-    
+
     func saveSettings() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let settingsFile = appSupport.appendingPathComponent("YTDownloader/settings.json")
-        
         guard let data = try? JSONEncoder().encode(settings) else { return }
         try? data.write(to: settingsFile)
     }
-    
+
     private func loadQueue() {
-        guard let data = try? Data(contentsOf: queueFile) else { return }
-        guard let loaded = try? JSONDecoder().decode([DownloadItem].self, from: data) else { return }
-        
-        queue = loaded
+        guard let data = try? Data(contentsOf: queueFile),
+              let loaded = try? JSONDecoder().decode([DownloadItem].self, from: data) else {
+            return
+        }
+        queue = loaded.map { item in
+            guard item.status == .downloading || item.status == .merging else { return item }
+            var copy = item
+            copy.status = .queued
+            copy.progress = 0
+            copy.error = "Interrupted; retrying"
+            return copy
+        }
+        saveQueue()
     }
-    
+
     private func saveQueue() {
         guard let data = try? JSONEncoder().encode(queue) else { return }
         try? data.write(to: queueFile)
+    }
+}
+
+/// Lets detached download work hop back to the live manager without capturing it.
+@MainActor
+final class DownloadProgressBridge {
+    static let shared = DownloadProgressBridge()
+    var handler: ((UUID, DownloadStatus, Double, String?) -> Void)?
+
+    func update(id: UUID, fraction: Double) {
+        handler?(id, .downloading, fraction, nil)
+    }
+
+    func merging(id: UUID) {
+        handler?(id, .merging, 0.92, nil)
+    }
+
+    func completed(id: UUID, path: String) {
+        handler?(id, .completed, 1, path)
     }
 }
