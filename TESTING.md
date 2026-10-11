@@ -17,7 +17,7 @@ Includes format selection (4K/60, original-language audio), retry delays, error 
 swift Scripts/run-content-tests.swift
 ```
 
-Loads `YTDownloader/YTDownloaderExtension/Resources/content.test.html` in WKWebView. Expected: **5 passed, 0 failed** (ID parse, preventDefault, button outside `<a>`, click isolation, skip Shorts).
+Loads `YTDownloader/YTDownloaderExtension/Resources/content.test.html` in WKWebView. Expected: **12 passed, 0 failed** (ID parse, preventDefault, legacy + lockup/kebab card injection, related/search, incomplete-card retry, skip Shorts, click isolation, 36px watch pill, infinite-scroll lockup).
 
 ### Binary bootstrap (clean, not Homebrew)
 

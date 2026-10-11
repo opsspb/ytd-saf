@@ -1,68 +1,124 @@
 // Content script for YouTube pages
-(function() {
+(function (global) {
     'use strict';
-    
+
     const BUTTON_ID = 'ytd-download-button';
     const CARD_BUTTON_CLASS = 'ytd-card-download-button';
     const CARD_BUTTON_MARKER = 'data-ytd-card-button';
+    const AVATAR_COLUMN_CLASS = 'ytd-card-avatar-column';
     const CHECK_INTERVAL = 1000;
+
+    const CARD_SELECTORS = [
+        'yt-lockup-view-model',
+        'ytd-rich-item-renderer',
+        'ytd-rich-grid-media',
+        'ytd-grid-video-renderer',
+        'ytd-video-renderer',
+        'ytd-compact-video-renderer'
+    ];
+
+    const VIDEO_LINK_SELECTORS = [
+        'a.ytLockupViewModelContentImage[href*="watch?v="]',
+        'a.yt-lockup-view-model__content-image[href*="watch?v="]',
+        'a.ytLockupMetadataViewModelTitle[href*="watch?v="]',
+        'a.yt-lockup-metadata-view-model__title[href*="watch?v="]',
+        'a#video-title-link[href*="watch?v="]',
+        'a#video-title[href*="watch?v="]',
+        'a#thumbnail[href*="watch?v="]',
+        'a.ytd-thumbnail[href*="watch?v="]',
+        'a[href*="/watch?v="]'
+    ];
+
+    const AVATAR_COLUMN_SELECTORS = [
+        '.yt-lockup-metadata-view-model__avatar',
+        '.ytLockupMetadataViewModelAvatar'
+    ];
+
+    const AVATAR_SELECTORS = [
+        '.yt-lockup-metadata-view-model__avatar',
+        '.ytLockupMetadataViewModelAvatar',
+        'yt-avatar-shape',
+        '.ytSpecAvatarShapeHost',
+        'yt-decorated-avatar-view-model',
+        '#avatar-link',
+        '#channel-thumbnail',
+        '#avatar'
+    ];
+
+    const WATCH_ACTIONS_SELECTORS = [
+        '#actions #top-level-buttons-computed',
+        '#top-level-buttons-computed',
+        '#flexible-item-buttons',
+        'ytd-watch-metadata #actions-inner',
+        'ytd-watch-metadata #actions',
+        '#menu-container ytd-menu-renderer #top-level-buttons-computed'
+    ];
+
     let observerActive = false;
-    
+
     function getVideoId() {
         const urlParams = new URLSearchParams(window.location.search);
         return urlParams.get('v');
     }
-    
+
     function getCanonicalUrl(videoId) {
         return `https://www.youtube.com/watch?v=${videoId}`;
     }
-    
+
     function extractVideoIdFromUrl(url) {
         if (!url) return null;
-        const match = url.match(/[?&]v=([^&]+)/);
+        try {
+            const parsed = new URL(url, 'https://www.youtube.com');
+            const fromQuery = parsed.searchParams.get('v');
+            if (fromQuery) return fromQuery;
+            const shorts = parsed.pathname.match(/^\/shorts\/([^/]+)/);
+            if (shorts) return shorts[1];
+            const embed = parsed.pathname.match(/^\/embed\/([^/]+)/);
+            if (embed) return embed[1];
+        } catch (error) {
+            // Fall through to regex for relative/malformed hrefs.
+        }
+        const match = String(url).match(/[?&]v=([^&]+)/);
         return match ? match[1] : null;
     }
-    
+
+    function isShortsHref(href) {
+        return typeof href === 'string' && href.includes('/shorts/');
+    }
+
     function createWatchPageButton() {
         const button = document.createElement('button');
         button.id = BUTTON_ID;
-        button.className = 'yt-spec-button-shape-next yt-spec-button-shape-next--tonal yt-spec-button-shape-next--mono yt-spec-button-shape-next--size-m';
-        button.style.cssText = `
-            margin-left: 8px;
-            font-weight: 500;
-            font-size: 14px;
-            padding: 0 16px;
-            height: 36px;
-            border-radius: 18px;
-            cursor: pointer;
-        `;
+        button.type = 'button';
+        button.className = 'ytd-watch-download-button';
         button.setAttribute('aria-label', 'Download with YTDownloader');
         button.textContent = 'YD';
-        
         button.addEventListener('click', handleWatchPageClick);
-        
         return button;
     }
-    
+
     async function handleWatchPageClick(e) {
         e.preventDefault();
         e.stopPropagation();
-        
-        const button = e.target;
+
+        const button = e.currentTarget;
         const videoId = getVideoId();
-        const url = getCanonicalUrl(videoId);
-        
-        if (!videoId || !url) {
-            button.textContent = '❌';
-            setTimeout(() => {
-                button.textContent = 'YD';
-            }, 2000);
+        if (!videoId) {
+            flashButton(button, '❌');
             return;
         }
-        
-        await queueDownload(button, videoId, url);
+
+        await queueDownload(button, videoId, getCanonicalUrl(videoId));
     }
-    
+
+    function flashButton(button, text) {
+        button.textContent = text;
+        setTimeout(() => {
+            button.textContent = 'YD';
+            button.disabled = false;
+        }, 2000);
+    }
+
     function openHostApp(videoId, url) {
         const params = new URLSearchParams({ videoId, url });
         const scheme = `ytdownloader://download?${params.toString()}`;
@@ -78,217 +134,265 @@
         button.textContent = '⏳';
         button.disabled = true;
         openHostApp(videoId, url);
-        
+
         try {
-            const response = await browser.runtime.sendMessage({
+            const runtime = (global.browser && global.browser.runtime) || (global.chrome && global.chrome.runtime);
+            if (!runtime || !runtime.sendMessage) {
+                flashButton(button, '✓');
+                return;
+            }
+
+            const response = await runtime.sendMessage({
                 action: 'download',
                 videoId: videoId,
                 url: url
             });
-            
+
             if (response && response.success) {
-                button.textContent = '✓';
-                setTimeout(() => {
-                    button.textContent = 'YD';
-                    button.disabled = false;
-                }, 2000);
+                flashButton(button, '✓');
             } else {
                 throw new Error('Download failed');
             }
         } catch (error) {
             console.error('YTDownloader error:', error);
-            button.textContent = '❌';
-            setTimeout(() => {
-                button.textContent = 'YD';
-                button.disabled = false;
-            }, 2000);
+            flashButton(button, '❌');
         }
     }
-    
+
+    function findWatchActionsRow() {
+        for (const selector of WATCH_ACTIONS_SELECTORS) {
+            const node = document.querySelector(selector);
+            if (node) return node;
+        }
+        return null;
+    }
+
     function insertButtonOnWatchPage() {
-        if (document.getElementById(BUTTON_ID)) return;
-        
         const videoId = getVideoId();
-        if (!videoId) return;
-        
-        const actionsContainer = document.querySelector('#top-level-buttons-computed');
-        if (!actionsContainer) return;
-        
+        const existing = document.getElementById(BUTTON_ID);
+
+        if (!videoId) {
+            if (existing) existing.remove();
+            return;
+        }
+
+        if (existing && document.contains(existing)) return;
+
+        const actionsRow = findWatchActionsRow();
+        if (!actionsRow) return;
+
         const button = createWatchPageButton();
-        actionsContainer.insertBefore(button, actionsContainer.firstChild);
+        // Append after Like/Share so we do not break the segmented control.
+        actionsRow.appendChild(button);
     }
-    
-    function insertButtonsOnCards() {
-        // Target video cards in grid/list views - skip Shorts and ads
-        const cardSelectors = [
-            'ytd-rich-item-renderer:not([data-ytd-card-button])',
-            'ytd-grid-video-renderer:not([data-ytd-card-button])',
-            'ytd-video-renderer:not([data-ytd-card-button])',
-            'ytd-compact-video-renderer:not([data-ytd-card-button])'
-        ];
-        
-        const cards = document.querySelectorAll(cardSelectors.join(','));
-        
-        cards.forEach(card => {
-            // Skip if already processed
-            if (card.hasAttribute(CARD_BUTTON_MARKER)) return;
-            
-            // Skip Shorts
-            if (card.querySelector('[overlay-style="SHORTS"]') || 
-                card.querySelector('a[href*="/shorts/"]')) {
-                card.setAttribute(CARD_BUTTON_MARKER, 'skipped');
-                return;
+
+    function cardAlreadyProcessed(card) {
+        const state = card.getAttribute(CARD_BUTTON_MARKER);
+        return state === 'added' || state === 'skipped';
+    }
+
+    function markCard(card, state) {
+        card.setAttribute(CARD_BUTTON_MARKER, state);
+        const host = card.closest('ytd-rich-item-renderer');
+        if (host && host !== card) {
+            host.setAttribute(CARD_BUTTON_MARKER, state);
+        }
+    }
+
+    function collectCards() {
+        const seen = new Set();
+        const cards = [];
+        document.querySelectorAll(CARD_SELECTORS.join(',')).forEach((node) => {
+            if (seen.has(node) || cardAlreadyProcessed(node)) return;
+            // Prefer the inner lockup; the rich-item is only a shell.
+            if (node.tagName === 'YTD-RICH-ITEM-RENDERER') {
+                const lockup = node.querySelector('yt-lockup-view-model');
+                if (lockup) {
+                    if (!seen.has(lockup) && !cardAlreadyProcessed(lockup)) {
+                        seen.add(lockup);
+                        cards.push(lockup);
+                    }
+                    return;
+                }
             }
-            
-            // Skip ads
-            if (card.querySelector('[aria-label*="Sponsored"]') ||
-                card.closest('ytd-ad-slot-renderer')) {
-                card.setAttribute(CARD_BUTTON_MARKER, 'skipped');
-                return;
-            }
-            
-            // Find the video link
-            const linkElement = card.querySelector('a#video-title-link, a#thumbnail, a.ytd-thumbnail');
-            if (!linkElement) {
-                card.setAttribute(CARD_BUTTON_MARKER, 'no-link');
-                return;
-            }
-            
-            const href = linkElement.getAttribute('href');
+            seen.add(node);
+            cards.push(node);
+        });
+        return cards;
+    }
+
+    function isSkippableCard(card) {
+        if (card.querySelector('[overlay-style="SHORTS"], ytm-shorts-lockup-view-model, ytd-reel-item-renderer')) {
+            return true;
+        }
+        if (card.querySelector('a[href*="/shorts/"]')) {
+            return true;
+        }
+        if (card.closest('ytd-ad-slot-renderer, ytd-promoted-sparkles-web-renderer')) {
+            return true;
+        }
+        if (card.querySelector('[aria-label*="Sponsored"], [aria-label*="Реклама"]')) {
+            return true;
+        }
+        return false;
+    }
+
+    function findVideoLink(card) {
+        for (const selector of VIDEO_LINK_SELECTORS) {
+            const link = card.querySelector(selector);
+            if (!link) continue;
+            const href = link.getAttribute('href') || '';
+            if (isShortsHref(href)) continue;
             const videoId = extractVideoIdFromUrl(href);
-            if (!videoId) {
-                card.setAttribute(CARD_BUTTON_MARKER, 'no-id');
+            if (videoId) return { link, href, videoId };
+        }
+        return null;
+    }
+
+    function findAvatarAnchor(card) {
+        for (const selector of AVATAR_COLUMN_SELECTORS.concat(AVATAR_SELECTORS)) {
+            const node = card.querySelector(selector);
+            if (node) return node;
+        }
+        return null;
+    }
+
+    function ensureAvatarColumn(avatarAnchor) {
+        const existing = avatarAnchor.closest('.' + AVATAR_COLUMN_CLASS);
+        if (existing) return existing;
+
+        // Avatar hosts are often 36px circles. Wrap them so YD sits under the
+        // circle instead of being clipped inside it.
+        const host = avatarAnchor.closest(AVATAR_COLUMN_SELECTORS.join(',')) || avatarAnchor;
+        const column = document.createElement('div');
+        column.className = AVATAR_COLUMN_CLASS;
+        host.parentNode.insertBefore(column, host);
+        column.appendChild(host);
+        return column;
+    }
+
+    function attachNoNavigation(target) {
+        const preventNavigation = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+        };
+
+        ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'click', 'auxclick', 'mouseover', 'mouseenter'].forEach((eventType) => {
+            target.addEventListener(eventType, preventNavigation, true);
+        });
+
+        return preventNavigation;
+    }
+
+    function createCardButton(videoId) {
+        const buttonContainer = document.createElement('div');
+        buttonContainer.className = 'ytd-card-button-container';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = CARD_BUTTON_CLASS;
+        button.textContent = 'YD';
+        button.setAttribute('aria-label', 'Download video');
+        button.setAttribute('data-video-id', videoId);
+
+        const preventNavigation = attachNoNavigation(button);
+        attachNoNavigation(buttonContainer);
+
+        button.addEventListener('click', async (e) => {
+            preventNavigation(e);
+            await queueDownload(button, videoId, getCanonicalUrl(videoId));
+        });
+
+        buttonContainer.appendChild(button);
+        return buttonContainer;
+    }
+
+    function insertButtonsOnCards() {
+        collectCards().forEach((card) => {
+            if (isSkippableCard(card)) {
+                markCard(card, 'skipped');
                 return;
             }
-            
-            // Find metadata area with channel avatar
-            const metadataArea = card.querySelector('#metadata, #meta, ytd-video-meta-block');
-            if (!metadataArea) {
-                card.setAttribute(CARD_BUTTON_MARKER, 'no-metadata');
+
+            const video = findVideoLink(card);
+            if (!video) {
+                // Skeleton / not hydrated yet — retry on the next pass.
                 return;
             }
-            
-            // Find channel avatar area (left column)
-            const channelAvatar = metadataArea.querySelector('#avatar, #channel-thumbnail, a.ytd-channel-name');
-            const avatarContainer = channelAvatar ? channelAvatar.closest('#avatar-link, #channel-info, .ytd-channel-name') : null;
-            
-            if (!avatarContainer) {
-                card.setAttribute(CARD_BUTTON_MARKER, 'no-avatar');
+
+            const avatarAnchor = findAvatarAnchor(card);
+            if (!avatarAnchor) {
                 return;
             }
-            
-            // Create button - place it in a separate container to isolate from link handlers
-            const buttonContainer = document.createElement('div');
-            buttonContainer.className = 'ytd-card-button-container';
-            buttonContainer.style.cssText = `
-                display: flex;
-                margin-top: 4px;
-                pointer-events: auto;
-            `;
-            
-            const button = document.createElement('button');
-            button.className = CARD_BUTTON_CLASS;
-            button.style.cssText = `
-                background: var(--yt-spec-badge-chip-background);
-                color: var(--yt-spec-text-primary);
-                border: 1px solid var(--yt-spec-10-percent-layer);
-                border-radius: 18px;
-                padding: 4px 12px;
-                font-size: 12px;
-                font-weight: 500;
-                cursor: pointer;
-                font-family: "YouTube Sans", "Roboto", sans-serif;
-                white-space: nowrap;
-                transition: background 0.1s;
-            `;
-            button.textContent = 'YD';
-            button.setAttribute('aria-label', 'Download video');
-            button.setAttribute('data-video-id', videoId);
-            
-            // Add hover effect
-            button.addEventListener('mouseenter', () => {
-                button.style.background = 'var(--yt-spec-badge-chip-background-hover, rgba(255,255,255,0.1))';
-            });
-            button.addEventListener('mouseleave', () => {
-                button.style.background = 'var(--yt-spec-badge-chip-background)';
-            });
-            
-            // Critical: prevent all navigation/playback triggers
-            // Use capture phase to intercept before YouTube's handlers
-            const preventNavigation = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-            };
-            
-            ['mousedown', 'pointerdown', 'touchstart', 'click', 'auxclick'].forEach(eventType => {
-                button.addEventListener(eventType, preventNavigation, true);
-            });
-            
-            // Handle actual download on click (after prevention)
-            button.addEventListener('click', async (e) => {
-                preventNavigation(e);
-                const url = getCanonicalUrl(videoId);
-                await queueDownload(button, videoId, url);
-            });
-            
-            buttonContainer.appendChild(button);
-            
-            // Insert below avatar
-            if (avatarContainer.parentElement) {
-                avatarContainer.parentElement.insertBefore(buttonContainer, avatarContainer.nextSibling);
-            } else {
-                avatarContainer.after(buttonContainer);
+
+            const column = ensureAvatarColumn(avatarAnchor);
+            if (column.querySelector('.' + CARD_BUTTON_CLASS)) {
+                markCard(card, 'added');
+                return;
             }
-            
-            card.setAttribute(CARD_BUTTON_MARKER, 'added');
+
+            const buttonContainer = createCardButton(video.videoId);
+            column.appendChild(buttonContainer);
+            markCard(card, 'added');
         });
     }
-    
+
+    function refresh() {
+        insertButtonOnWatchPage();
+        insertButtonsOnCards();
+    }
+
     function initObserver() {
-        if (observerActive) return;
-        
+        if (observerActive || !document.body) return;
+
         const observer = new MutationObserver(() => {
-            insertButtonOnWatchPage();
-            insertButtonsOnCards();
+            refresh();
         });
-        
+
         observer.observe(document.body, {
             childList: true,
             subtree: true
         });
-        
+
         observerActive = true;
     }
-    
+
     function init() {
-        insertButtonOnWatchPage();
-        insertButtonsOnCards();
+        refresh();
         initObserver();
-        
-        setInterval(() => {
-            insertButtonOnWatchPage();
-            insertButtonsOnCards();
-        }, CHECK_INTERVAL);
+
+        setInterval(refresh, CHECK_INTERVAL);
+
+        window.addEventListener('yt-navigate-finish', refresh);
+        window.addEventListener('yt-page-data-updated', refresh);
+
+        let lastUrl = location.href;
+        new MutationObserver(() => {
+            if (location.href === lastUrl) return;
+            lastUrl = location.href;
+            setTimeout(refresh, 300);
+        }).observe(document, { subtree: true, childList: true });
     }
-    
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
-    
-    // SPA navigation detection
-    let lastUrl = location.href;
-    new MutationObserver(() => {
-        const currentUrl = location.href;
-        if (currentUrl !== lastUrl) {
-            lastUrl = currentUrl;
-            setTimeout(() => {
-                insertButtonOnWatchPage();
-                insertButtonsOnCards();
-            }, 500);
+
+    const api = {
+        BUTTON_ID,
+        CARD_BUTTON_CLASS,
+        CARD_BUTTON_MARKER,
+        extractVideoIdFromUrl,
+        insertButtonOnWatchPage,
+        insertButtonsOnCards,
+        refresh,
+        init
+    };
+
+    global.YTD = api;
+
+    if (!global.__YTD_TEST__) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
         }
-    }).observe(document, { subtree: true, childList: true });
-    
-})();
+    }
+})(typeof window !== 'undefined' ? window : globalThis);

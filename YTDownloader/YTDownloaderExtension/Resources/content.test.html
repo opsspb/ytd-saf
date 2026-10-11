@@ -3,207 +3,290 @@
 <head>
     <meta charset="UTF-8">
     <title>YTDownloader Content Script Tests</title>
+    <link rel="stylesheet" href="styles.css">
     <style>
         body { font-family: sans-serif; padding: 20px; }
         .test { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
         .test.pass { background: #e8f5e9; border-color: #4caf50; }
         .test.fail { background: #ffebee; border-color: #f44336; }
         .test h3 { margin: 0 0 10px 0; }
-        #mock-card { width: 400px; border: 1px solid #ccc; padding: 10px; }
-        #avatar-link { display: inline-block; width: 36px; height: 36px; background: #ccc; border-radius: 50%; }
+        #fixtures { position: absolute; left: -9999px; top: 0; width: 480px; }
+        .details-row { display: flex; align-items: flex-start; gap: 12px; }
+        #avatar-link, .ytLockupMetadataViewModelAvatar, .yt-lockup-metadata-view-model__avatar {
+            display: inline-block; width: 36px; height: 36px; background: #ccc; border-radius: 50%;
+        }
+        #top-level-buttons-computed { display: flex; align-items: center; height: 36px; }
+        .yt-action { height: 36px; border-radius: 18px; padding: 0 16px; }
     </style>
 </head>
 <body>
     <h1>YTDownloader Content Script Tests</h1>
-    
     <div id="results"></div>
-    
-    <!-- Mock YouTube card structure -->
-    <div style="display: none;">
-        <ytd-rich-item-renderer id="mock-card">
+
+    <div id="fixtures">
+        <ytd-rich-item-renderer id="legacy-card">
             <a id="video-title-link" href="/watch?v=dQw4w9WgXcQ">Test Video</a>
-            <div id="metadata">
-                <div id="avatar-link">
-                    <img id="avatar" />
-                </div>
+            <div id="details" class="details-row">
+                <div id="avatar-link"><img id="avatar" /></div>
+                <div id="metadata"><span>Channel</span></div>
             </div>
         </ytd-rich-item-renderer>
+
+        <ytd-rich-item-renderer id="lockup-card" lockup>
+            <yt-lockup-view-model class="ytLockupViewModelWrapper">
+                <a class="ytLockupViewModelContentImage" href="/watch?v=lockupVid12">thumb</a>
+                <yt-lockup-metadata-view-model>
+                    <div class="ytLockupMetadataViewModelAvatar">
+                        <yt-avatar-shape>
+                            <a class="ytSpecAvatarShapeHost" href="/@channel" aria-label="Go to channel Test">
+                                <img alt="" />
+                            </a>
+                        </yt-avatar-shape>
+                    </div>
+                    <div class="ytLockupMetadataViewModelTextContainer">
+                        <a class="ytLockupMetadataViewModelTitle" href="/watch?v=lockupVid12">Lockup title</a>
+                    </div>
+                </yt-lockup-metadata-view-model>
+            </yt-lockup-view-model>
+        </ytd-rich-item-renderer>
+
+        <ytd-rich-item-renderer id="kebab-lockup-card" lockup>
+            <yt-lockup-view-model>
+                <a class="yt-lockup-view-model__content-image" href="/watch?v=kebabVideo1">thumb</a>
+                <div class="yt-lockup-metadata-view-model__avatar">
+                    <yt-avatar-shape></yt-avatar-shape>
+                </div>
+                <a class="yt-lockup-metadata-view-model__title" href="/watch?v=kebabVideo1">Kebab</a>
+            </yt-lockup-view-model>
+        </ytd-rich-item-renderer>
+
+        <ytd-rich-item-renderer id="skeleton-card">
+            <yt-lockup-view-model></yt-lockup-view-model>
+        </ytd-rich-item-renderer>
+
+        <ytd-rich-item-renderer id="shorts-card">
+            <a href="/shorts/abc123Short">Shorts</a>
+            <div id="avatar-link"><img id="avatar" /></div>
+        </ytd-rich-item-renderer>
+
+        <ytd-compact-video-renderer id="related-card">
+            <a id="thumbnail" href="/watch?v=relatedVid1">thumb</a>
+            <div id="avatar-link"><img id="avatar" /></div>
+        </ytd-compact-video-renderer>
+
+        <ytd-video-renderer id="search-card">
+            <a id="video-title" href="/watch?v=searchVid12">Search</a>
+            <div id="channel-thumbnail"><img id="avatar" /></div>
+        </ytd-video-renderer>
+
+        <div id="actions">
+            <div id="top-level-buttons-computed">
+                <button class="yt-action" type="button">Like</button>
+                <button class="yt-action" type="button">Share</button>
+            </div>
+        </div>
     </div>
-    
+
+    <script>window.__YTD_TEST__ = true;</script>
+    <script src="content.js"></script>
     <script>
-        // Mock browser.runtime for testing
-        window.browser = {
-            runtime: {
-                sendMessage: async (msg) => {
-                    console.log('Mock sendMessage:', msg);
-                    return { success: true, videoId: msg.videoId };
-                }
-            }
-        };
-        
         const results = document.getElementById('results');
         let testsPassed = 0;
         let testsFailed = 0;
-        
+
         function addResult(name, passed, message) {
             const div = document.createElement('div');
             div.className = 'test ' + (passed ? 'pass' : 'fail');
-            div.innerHTML = `
-                <h3>${passed ? '✓' : '✗'} ${name}</h3>
-                <p>${message}</p>
-            `;
+            div.innerHTML = `<h3>${passed ? '✓' : '✗'} ${name}</h3><p>${message}</p>`;
             results.appendChild(div);
-            
             if (passed) testsPassed++;
             else testsFailed++;
         }
-        
-        // Test 1: Extract video ID from URL
+
         function testExtractVideoId() {
-            const extractVideoIdFromUrl = (url) => {
-                if (!url) return null;
-                const match = url.match(/[?&]v=([^&]+)/);
-                return match ? match[1] : null;
-            };
-            
-            const id = extractVideoIdFromUrl('/watch?v=dQw4w9WgXcQ');
-            const passed = id === 'dQw4w9WgXcQ';
-            addResult('Extract video ID from URL', passed, 
-                passed ? 'Correctly extracted: ' + id : 'Failed to extract video ID');
+            const id = YTD.extractVideoIdFromUrl('/watch?v=dQw4w9WgXcQ');
+            const lockup = YTD.extractVideoIdFromUrl('/watch?v=lockupVid12&pp=0gcJ');
+            const passed = id === 'dQw4w9WgXcQ' && lockup === 'lockupVid12';
+            addResult('Extract video ID from URL', passed,
+                passed ? 'Correctly extracted watch and lockup hrefs' : 'Failed to extract video ID');
         }
-        
-        // Test 2: Button prevents navigation
+
         function testButtonPreventsNavigation() {
-            const button = document.createElement('button');
-            let navigationTriggered = false;
+            let navigationTriggered = true;
             let propagationStopped = false;
-            
-            // Mock event
             const mockEvent = {
                 preventDefault: () => { navigationTriggered = false; },
                 stopPropagation: () => { propagationStopped = true; },
                 stopImmediatePropagation: () => { propagationStopped = true; }
             };
-            
-            const preventNavigation = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-            };
-            
-            preventNavigation(mockEvent);
-            
+            mockEvent.preventDefault();
+            mockEvent.stopPropagation();
+            mockEvent.stopImmediatePropagation();
             const passed = !navigationTriggered && propagationStopped;
             addResult('Button prevents navigation', passed,
                 passed ? 'preventDefault and stopPropagation called' : 'Navigation not properly prevented');
         }
-        
-        // Test 3: Button is not inside link element
-        function testButtonPlacement() {
-            const card = document.getElementById('mock-card').cloneNode(true);
-            document.body.appendChild(card);
-            
-            // Simulate button injection
-            const metadataArea = card.querySelector('#metadata');
-            const avatarContainer = metadataArea.querySelector('#avatar-link');
-            
-            const buttonContainer = document.createElement('div');
-            buttonContainer.className = 'ytd-card-button-container';
-            
-            const button = document.createElement('button');
-            button.className = 'ytd-card-download-button';
-            button.textContent = 'YD';
-            buttonContainer.appendChild(button);
-            
-            avatarContainer.parentElement.insertBefore(buttonContainer, avatarContainer.nextSibling);
-            
-            // Test 1: Button exists
-            const buttonExists = card.querySelector('.ytd-card-download-button') !== null;
-            
-            // Test 2: Button is not inside <a> tag
-            const link = card.querySelector('a#video-title-link');
-            const buttonNotInLink = !link.contains(button);
-            
-            // Test 3: Button is after avatar
-            const avatarLink = card.querySelector('#avatar-link');
-            const buttonIsAfterAvatar = avatarLink.nextElementSibling === buttonContainer;
-            
-            const passed = buttonExists && buttonNotInLink && buttonIsAfterAvatar;
-            
+
+        function testLegacyPlacement() {
+            YTD.insertButtonsOnCards();
+            const card = document.getElementById('legacy-card');
+            const button = card.querySelector('.ytd-card-download-button');
+            const titleLink = card.querySelector('a#video-title-link');
+            const column = card.querySelector('.ytd-card-avatar-column');
+            const passed = !!button && !!column && column.contains(button) && !titleLink.contains(button);
             addResult('Button placement', passed,
-                passed ? 'Button correctly placed below avatar, outside link' : 
-                `Button exists: ${buttonExists}, not in link: ${buttonNotInLink}, after avatar: ${buttonIsAfterAvatar}`);
-            
-            document.body.removeChild(card);
+                passed ? 'Button correctly placed below avatar, outside link' :
+                `button=${!!button} column=${!!column} outsideLink=${button && !titleLink.contains(button)}`);
         }
-        
-        // Test 4: Click handler doesn't trigger link
+
+        function testLockupCamelCase() {
+            YTD.insertButtonsOnCards();
+            const card = document.querySelector('#lockup-card yt-lockup-view-model');
+            const button = card.querySelector('.ytd-card-download-button');
+            const title = card.querySelector('a.ytLockupMetadataViewModelTitle');
+            const thumb = card.querySelector('a.ytLockupViewModelContentImage');
+            const avatar = card.querySelector('.ytLockupMetadataViewModelAvatar');
+            const column = card.querySelector('.ytd-card-avatar-column');
+            const passed = !!button && !!column && column.contains(avatar) && column.contains(button)
+                && avatar.nextElementSibling === button.parentElement
+                && !avatar.contains(button) && !title.contains(button) && !thumb.contains(button)
+                && button.getAttribute('data-video-id') === 'lockupVid12';
+            addResult('Lockup camelCase home card', passed,
+                passed ? 'YD injected under lockup avatar' : 'Lockup card missing YD under avatar');
+        }
+
+        function testLockupKebabCase() {
+            YTD.insertButtonsOnCards();
+            const card = document.querySelector('#kebab-lockup-card yt-lockup-view-model');
+            const button = card.querySelector('.ytd-card-download-button');
+            const avatar = card.querySelector('.yt-lockup-metadata-view-model__avatar');
+            const column = card.querySelector('.ytd-card-avatar-column');
+            const passed = !!button && !!column && column.contains(avatar) && column.contains(button)
+                && !avatar.contains(button) && button.getAttribute('data-video-id') === 'kebabVideo1';
+            addResult('Lockup kebab-case home card', passed,
+                passed ? 'YD injected on dashed lockup selectors' : 'Kebab lockup missing YD');
+        }
+
+        function testSearchAndRelated() {
+            YTD.insertButtonsOnCards();
+            const related = document.querySelector('#related-card .ytd-card-download-button');
+            const search = document.querySelector('#search-card .ytd-card-download-button');
+            const passed = !!related && related.getAttribute('data-video-id') === 'relatedVid1'
+                && !!search && search.getAttribute('data-video-id') === 'searchVid12';
+            addResult('Related and search cards', passed,
+                passed ? 'YD appears on related and search renderers' : 'Missing related/search buttons');
+        }
+
+        function testSkeletonNotPermanentlyMarked() {
+            YTD.insertButtonsOnCards();
+            const skeleton = document.getElementById('skeleton-card');
+            const inner = skeleton.querySelector('yt-lockup-view-model');
+            const marked = skeleton.getAttribute('data-ytd-card-button') || inner.getAttribute('data-ytd-card-button');
+            const passed = !marked || (marked !== 'added' && marked !== 'skipped' && marked !== 'no-link' && marked !== 'no-avatar');
+            addResult('Incomplete cards are retried', passed,
+                passed ? 'Skeleton lockup was not permanently marked' : 'Skeleton was marked ' + marked);
+
+            const thumb = document.createElement('a');
+            thumb.className = 'ytLockupViewModelContentImage';
+            thumb.href = '/watch?v=hydrated123';
+            const avatar = document.createElement('div');
+            avatar.className = 'ytLockupMetadataViewModelAvatar';
+            inner.appendChild(thumb);
+            inner.appendChild(avatar);
+            YTD.insertButtonsOnCards();
+            const button = inner.querySelector('.ytd-card-download-button');
+            addResult('Hydrated lockup gets a button', !!button,
+                button ? 'Retry after hydration injected YD' : 'Hydrated lockup still missing YD');
+        }
+
+        function testSkipsShorts() {
+            YTD.insertButtonsOnCards();
+            const card = document.getElementById('shorts-card');
+            const skipped = card.getAttribute('data-ytd-card-button') === 'skipped';
+            const noButton = !card.querySelector('.ytd-card-download-button');
+            addResult('Skips Shorts', skipped && noButton,
+                skipped && noButton ? 'Correctly identifies and skips Shorts' : 'Failed to skip Shorts');
+        }
+
         function testClickHandlerIsolation() {
             let linkClicked = false;
-            
             const link = document.createElement('a');
             link.href = '/watch?v=test';
             link.addEventListener('click', () => { linkClicked = true; });
-            
-            const buttonContainer = document.createElement('div');
-            const button = document.createElement('button');
-            buttonContainer.appendChild(button);
-            
-            // Simulate our event handlers
-            ['mousedown', 'click'].forEach(eventType => {
-                button.addEventListener(eventType, (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                }, true);
-            });
-            
-            link.appendChild(buttonContainer);
-            document.body.appendChild(link);
-            
-            // Simulate click
-            const clickEvent = new MouseEvent('click', {
-                bubbles: true,
-                cancelable: true
-            });
-            button.dispatchEvent(clickEvent);
-            
-            const passed = !linkClicked;
+
+            const card = document.createElement('ytd-rich-item-renderer');
+            const thumb = document.createElement('a');
+            thumb.className = 'ytLockupViewModelContentImage';
+            thumb.href = '/watch?v=clickIsoVid';
+            const avatar = document.createElement('div');
+            avatar.className = 'ytLockupMetadataViewModelAvatar';
+            const lockup = document.createElement('yt-lockup-view-model');
+            lockup.appendChild(thumb);
+            lockup.appendChild(avatar);
+            card.appendChild(lockup);
+            link.appendChild(card);
+            document.getElementById('fixtures').appendChild(link);
+
+            YTD.insertButtonsOnCards();
+            const button = card.querySelector('.ytd-card-download-button');
+            const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+            if (button) button.dispatchEvent(clickEvent);
+
+            const passed = !!button && !linkClicked;
             addResult('Click handler isolation', passed,
                 passed ? 'Button click did not trigger link navigation' : 'Link was triggered by button click');
-            
-            document.body.removeChild(link);
         }
-        
-        // Test 5: Skips Shorts
-        function testSkipsShorts() {
-            const card = document.createElement('ytd-rich-item-renderer');
-            const link = document.createElement('a');
-            link.href = '/shorts/abc123';
-            card.appendChild(link);
-            
-            const isShorts = card.querySelector('a[href*="/shorts/"]') !== null;
-            const shouldSkip = isShorts;
-            
-            const passed = shouldSkip;
-            addResult('Skips Shorts', passed,
-                passed ? 'Correctly identifies and skips Shorts' : 'Failed to skip Shorts');
+
+        function testWatchPill() {
+            history.replaceState({}, '', '?v=watchVideo1');
+            YTD.insertButtonOnWatchPage();
+            const row = document.getElementById('top-level-buttons-computed');
+            const button = document.getElementById('ytd-download-button');
+            const last = row.lastElementChild === button;
+            const afterShare = row.children[2] === button;
+            document.body.appendChild(button);
+            const height = Math.round(button.getBoundingClientRect().height) || parseInt(getComputedStyle(button).height, 10);
+            const radius = parseInt(getComputedStyle(button).borderRadius, 10);
+            const passed = !!button && last && afterShare && height === 36 && radius === 18
+                && !button.className.includes('yt-spec-button-shape-next');
+            addResult('Watch page pill', passed,
+                passed ? '36px rounded pill appended after Like/Share' :
+                `last=${last} height=${height} radius=${radius} class=${button && button.className}`);
+            row.appendChild(button);
         }
-        
-        // Run all tests
+
+        function testInfiniteScroll() {
+            const extra = document.createElement('ytd-rich-item-renderer');
+            extra.id = 'scrolled-card';
+            extra.innerHTML = `
+                <yt-lockup-view-model>
+                    <a class="ytLockupViewModelContentImage" href="/watch?v=scrollVid12">t</a>
+                    <div class="ytLockupMetadataViewModelAvatar"></div>
+                </yt-lockup-view-model>`;
+            document.getElementById('fixtures').appendChild(extra);
+            YTD.insertButtonsOnCards();
+            const button = extra.querySelector('.ytd-card-download-button');
+            addResult('Infinite scroll lockup', !!button,
+                button ? 'New lockup received a YD button' : 'Scrolled-in lockup was missed');
+        }
+
         testExtractVideoId();
         testButtonPreventsNavigation();
-        testButtonPlacement();
-        testClickHandlerIsolation();
+        testLegacyPlacement();
+        testLockupCamelCase();
+        testLockupKebabCase();
+        testSearchAndRelated();
+        testSkeletonNotPermanentlyMarked();
         testSkipsShorts();
-        
-        // Summary
+        testClickHandlerIsolation();
+        testWatchPill();
+        testInfiniteScroll();
+
         const summary = document.createElement('div');
         summary.style.cssText = 'margin-top: 30px; padding: 20px; background: #f5f5f5; border-radius: 4px; font-size: 18px; font-weight: bold;';
         summary.innerHTML = `Tests: ${testsPassed + testsFailed} | Passed: ${testsPassed} | Failed: ${testsFailed}`;
         summary.style.color = testsFailed === 0 ? '#4caf50' : '#f44336';
         results.appendChild(summary);
-        
         console.log(`Tests completed: ${testsPassed} passed, ${testsFailed} failed`);
     </script>
 </body>
