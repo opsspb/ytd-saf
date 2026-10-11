@@ -145,7 +145,7 @@ public struct DownloadItem: Codable, Identifiable, Equatable {
     }
 }
 
-public enum DownloadError: Error, LocalizedError {
+public enum DownloadError: Error, LocalizedError, Equatable {
     case ytdlpNotFound
     case ffmpegNotFound
     case invalidURL
