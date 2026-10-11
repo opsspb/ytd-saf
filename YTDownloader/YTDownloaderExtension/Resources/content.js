@@ -63,9 +63,21 @@
         await queueDownload(button, videoId, url);
     }
     
+    function openHostApp(videoId, url) {
+        const params = new URLSearchParams({ videoId, url });
+        const scheme = `ytdownloader://download?${params.toString()}`;
+        const iframe = document.createElement('iframe');
+        iframe.setAttribute('aria-hidden', 'true');
+        iframe.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden';
+        iframe.src = scheme;
+        document.documentElement.appendChild(iframe);
+        setTimeout(() => iframe.remove(), 2000);
+    }
+
     async function queueDownload(button, videoId, url) {
         button.textContent = '⏳';
         button.disabled = true;
+        openHostApp(videoId, url);
         
         try {
             const response = await browser.runtime.sendMessage({

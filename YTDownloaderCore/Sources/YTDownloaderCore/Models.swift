@@ -160,6 +160,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     case forbidden
     case tooManyRequests
     case networkError(String)
+    case bootstrapFailed(String)
     case unknown(String)
     
     public var errorDescription: String? {
@@ -192,6 +193,8 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Too many requests (429)"
         case .networkError(let msg):
             return "Network error: \(msg)"
+        case .bootstrapFailed(let msg):
+            return "Could not install yt-dlp/ffmpeg: \(msg)"
         case .unknown(let msg):
             return "Unknown error: \(msg)"
         }

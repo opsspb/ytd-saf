@@ -63,7 +63,17 @@ struct SetupView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
             
-            if binaryManager.setupProgress > 0 {
+            if let error = binaryManager.setupError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+                Button("Retry Setup") {
+                    Task { await binaryManager.setup() }
+                }
+                .buttonStyle(.borderedProminent)
+            } else if binaryManager.setupProgress > 0 {
                 ProgressView(value: binaryManager.setupProgress, total: 1.0)
                     .frame(width: 200)
             } else {

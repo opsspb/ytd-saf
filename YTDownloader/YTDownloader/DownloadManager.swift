@@ -8,10 +8,8 @@ class DownloadManager: ObservableObject {
     @Published var selectedItem: DownloadItem?
     @Published var settings = DownloadSettings()
     
-    private let binaryManager = BinaryManager()
     private let formatSelector = FormatSelector()
     private let retryStrategy = RetryStrategy()
-    private let errorClassifier = ErrorClassifier()
     
     private var activeDownloads = 0
     private var retryStates: [UUID: RetryState] = [:]
@@ -30,6 +28,12 @@ class DownloadManager: ObservableObject {
     }
     
     func addDownload(videoId: String, url: String) {
+        if queue.contains(where: { item in
+            item.videoId == videoId && (item.status == .queued || item.status == .downloading || item.status == .merging)
+        }) {
+            return
+        }
+
         let item = DownloadItem(videoId: videoId, url: url)
         queue.append(item)
         saveQueue()
@@ -75,14 +79,8 @@ class DownloadManager: ObservableObject {
         updateItemStatus(id: item.id, status: .downloading)
         
         do {
-            let ytdlpPath = await binaryManager.ytdlpPath()
-            let ffmpegPath = await binaryManager.ffmpegPath()
-            
-            guard let ytdlp = ytdlpPath, let ffmpeg = ffmpegPath else {
-                throw DownloadError.ytdlpNotFound
-            }
-            
-            let info = try await fetchVideoInfo(url: item.url, ytdlpPath: ytdlp, useCookies: false)
+            let pipeline = try makePipeline()
+            let info = try pipeline.fetchInfo(url: item.url, useCookies: false)
             
             updateTitle(id: item.id, title: info.title)
             
@@ -92,8 +90,7 @@ class DownloadManager: ObservableObject {
                 item: item,
                 info: info,
                 formats: formats,
-                ytdlpPath: ytdlp,
-                ffmpegPath: ffmpeg
+                pipeline: pipeline
             )
             
         } catch let error as DownloadError where error.requiresCookies {
@@ -113,22 +110,15 @@ class DownloadManager: ObservableObject {
         }
         
         do {
-            let ytdlpPath = await binaryManager.ytdlpPath()
-            let ffmpegPath = await binaryManager.ffmpegPath()
-            
-            guard let ytdlp = ytdlpPath, let ffmpeg = ffmpegPath else {
-                throw DownloadError.ytdlpNotFound
-            }
-            
-            let info = try await fetchVideoInfo(url: item.url, ytdlpPath: ytdlp, useCookies: true)
+            let pipeline = try makePipeline()
+            let info = try pipeline.fetchInfo(url: item.url, useCookies: true)
             let formats = try formatSelector.selectBestFormats(from: info)
             
             try await downloadAndMerge(
                 item: item,
                 info: info,
                 formats: formats,
-                ytdlpPath: ytdlp,
-                ffmpegPath: ffmpeg,
+                pipeline: pipeline,
                 useCookies: true
             )
         } catch {
@@ -161,163 +151,56 @@ class DownloadManager: ObservableObject {
         saveQueue()
     }
     
-    private func fetchVideoInfo(url: String, ytdlpPath: String, useCookies: Bool) async throws -> YTDLPInfo {
-        var args = ["-J", "--no-warnings", url]
-        
-        if useCookies {
-            switch settings.cookieMode {
-            case .safari:
-                args.append(contentsOf: ["--cookies-from-browser", "safari"])
-            case .file:
-                if let cookiePath = settings.cookieFilePath {
-                    args.append(contentsOf: ["--cookies", cookiePath])
-                }
-            case .none:
-                break
-            }
+    private func makePipeline() throws -> VideoDownloadPipeline {
+        guard let paths = BinaryBootstrap().locateExisting() else {
+            throw DownloadError.ytdlpNotFound
         }
-        
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ytdlpPath)
-        process.arguments = args
-        
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        
-        try process.run()
-        process.waitUntilExit()
-        
-        if process.terminationStatus != 0 {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
-            throw errorClassifier.classifyError(from: errorOutput)
-        }
-        
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        
-        let decoder = JSONDecoder()
-        return try decoder.decode(YTDLPInfo.self, from: outputData)
+        return VideoDownloadPipeline(
+            ytdlpPath: paths.ytdlp,
+            ffmpegPath: paths.ffmpeg,
+            cookieMode: settings.cookieMode,
+            cookieFilePath: settings.cookieFilePath
+        )
     }
     
     private func downloadAndMerge(
         item: DownloadItem,
         info: YTDLPInfo,
         formats: SelectedFormats,
-        ytdlpPath: String,
-        ffmpegPath: String,
+        pipeline: VideoDownloadPipeline,
         useCookies: Bool = false
     ) async throws {
         let downloadDir = (settings.downloadDirectory as NSString).expandingTildeInPath
-        let tempDir = FileManager.default.temporaryDirectory
+        try FileManager.default.createDirectory(atPath: downloadDir, withIntermediateDirectories: true)
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-\(item.videoId)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let videoFile = tempDir.appendingPathComponent("video.\(formats.video.ext)").path
+        let audioFile = tempDir.appendingPathComponent("audio.\(formats.audio.ext)").path
         
-        let videoFile = tempDir.appendingPathComponent("\(item.videoId)_video.\(formats.video.ext)")
-        let audioFile = tempDir.appendingPathComponent("\(item.videoId)_audio.\(formats.audio.ext)")
-        
-        try await downloadFormat(
+        try pipeline.downloadFormat(
             url: item.url,
             formatId: formats.video.formatId,
-            outputPath: videoFile.path,
-            ytdlpPath: ytdlpPath,
-            useCookies: useCookies,
-            itemId: item.id
+            outputPath: videoFile,
+            useCookies: useCookies
         )
         
-        try await downloadFormat(
+        try pipeline.downloadFormat(
             url: item.url,
             formatId: formats.audio.formatId,
-            outputPath: audioFile.path,
-            ytdlpPath: ytdlpPath,
-            useCookies: useCookies,
-            itemId: item.id
+            outputPath: audioFile,
+            useCookies: useCookies
         )
         
         updateItemStatus(id: item.id, status: .merging)
         
         let sanitizedTitle = info.title.replacingOccurrences(of: "[^a-zA-Z0-9_\\-\\s]", with: "", options: .regularExpression)
-        let outputFile = "\(downloadDir)/\(sanitizedTitle)_\(item.videoId).mkv"
+        let outputFile = (downloadDir as NSString).appendingPathComponent("\(sanitizedTitle)_\(item.videoId).mkv")
         
-        try await mergeFiles(
-            videoPath: videoFile.path,
-            audioPath: audioFile.path,
-            outputPath: outputFile,
-            ffmpegPath: ffmpegPath
-        )
-        
-        try? FileManager.default.removeItem(at: videoFile)
-        try? FileManager.default.removeItem(at: audioFile)
+        try pipeline.merge(videoPath: videoFile, audioPath: audioFile, outputPath: outputFile)
         
         updateItemStatus(id: item.id, status: .completed, progress: 1.0, outputPath: outputFile)
-    }
-    
-    private func downloadFormat(
-        url: String,
-        formatId: String,
-        outputPath: String,
-        ytdlpPath: String,
-        useCookies: Bool,
-        itemId: UUID
-    ) async throws {
-        var args = ["-f", formatId, "-o", outputPath, "--no-warnings", url]
-        
-        if useCookies {
-            switch settings.cookieMode {
-            case .safari:
-                args.append(contentsOf: ["--cookies-from-browser", "safari"])
-            case .file:
-                if let cookiePath = settings.cookieFilePath {
-                    args.append(contentsOf: ["--cookies", cookiePath])
-                }
-            case .none:
-                break
-            }
-        }
-        
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ytdlpPath)
-        process.arguments = args
-        
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-        
-        try process.run()
-        process.waitUntilExit()
-        
-        if process.terminationStatus != 0 {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
-            throw errorClassifier.classifyError(from: errorOutput)
-        }
-    }
-    
-    private func mergeFiles(
-        videoPath: String,
-        audioPath: String,
-        outputPath: String,
-        ffmpegPath: String
-    ) async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = [
-            "-i", videoPath,
-            "-i", audioPath,
-            "-c", "copy",
-            "-y",
-            outputPath
-        ]
-        
-        let errorPipe = Pipe()
-        process.standardError = errorPipe
-        
-        try process.run()
-        process.waitUntilExit()
-        
-        if process.terminationStatus != 0 {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
-            throw DownloadError.mergeFailed(errorOutput)
-        }
     }
     
     private func loadSettings() {
