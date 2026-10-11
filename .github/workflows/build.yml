@@ -76,70 +76,47 @@ jobs:
         cd YTDownloaderCore
         swift build
         
-        # Create test script
-        cat > /tmp/test_real_video.swift << 'EOF'
-        import Foundation
-        @testable import YTDownloaderCore
-        
-        let data = try! Data(contentsOf: URL(fileURLWithPath: "/tmp/video_info.json"))
-        let info = try! JSONDecoder().decode(YTDLPInfo.self, from: data)
-        
-        print("Video: \(info.title)")
-        print("Total formats: \(info.formats.count)")
-        
-        let selector = FormatSelector()
-        let selected = try! selector.selectBestFormats(from: info)
-        
-        print("Selected video format: \(selected.video.formatId) - \(selected.video.resolution ?? "unknown") @ \(selected.video.fps ?? 0)fps")
-        print("Selected audio format: \(selected.audio.formatId) - \(selected.audio.abr ?? 0)kbps (\(selected.audio.language ?? "unknown"))")
-        
-        // Verify we got valid formats
-        guard selected.video.hasVideo && selected.audio.hasAudio else {
-            print("ERROR: Invalid format selection")
-            exit(1)
-        }
-        
-        print("Format selection test: PASSED")
-        EOF
-        
-        # Run using swift run which handles modules properly
-        cat > Tests/IntegrationTests/main.swift << 'TESTEOF'
-        import Foundation
-        import YTDownloaderCore
-        
-        let data = try! Data(contentsOf: URL(fileURLWithPath: "/tmp/video_info.json"))
-        let info = try! JSONDecoder().decode(YTDLPInfo.self, from: data)
-        
-        print("Video: \(info.title)")
-        print("Total formats: \(info.formats.count)")
-        
-        let selector = FormatSelector()
-        let selected = try! selector.selectBestFormats(from: info)
-        
-        print("Selected video format: \(selected.video.formatId) - \(selected.video.resolution ?? "unknown") @ \(selected.video.fps ?? 0)fps")
-        print("Selected audio format: \(selected.audio.formatId) - \(selected.audio.abr ?? 0)kbps (\(selected.audio.language ?? "unknown"))")
-        
-        guard selected.video.hasVideo && selected.audio.hasAudio else {
-            print("ERROR: Invalid format selection")
-            exit(1)
-        }
-        
-        print("Format selection test: PASSED")
-        TESTEOF
-        
+        # Create integration test directory and file
         mkdir -p Tests/IntegrationTests
+        cat > Tests/IntegrationTests/main.swift << 'TESTEOF'
+import Foundation
+import YTDownloaderCore
+
+let data = try! Data(contentsOf: URL(fileURLWithPath: "/tmp/video_info.json"))
+let info = try! JSONDecoder().decode(YTDLPInfo.self, from: data)
+
+print("Video: \(info.title)")
+print("Total formats: \(info.formats.count)")
+
+let selector = FormatSelector()
+let selected = try! selector.selectBestFormats(from: info)
+
+print("Selected video format: \(selected.video.formatId) - \(selected.video.resolution ?? "unknown") @ \(selected.video.fps ?? 0)fps")
+print("Selected audio format: \(selected.audio.formatId) - \(selected.audio.abr ?? 0)kbps (\(selected.audio.language ?? "unknown"))")
+
+guard selected.video.hasVideo && selected.audio.hasAudio else {
+    print("ERROR: Invalid format selection")
+    exit(1)
+}
+
+print("Format selection test: PASSED")
+TESTEOF
         
         # Add test target to Package.swift temporarily
+        cp Package.swift Package.swift.bak
         cat >> Package.swift << 'PKGEOF'
-        
-        // Integration test target
+,
         .executableTarget(
             name: "IntegrationTests",
             dependencies: ["YTDownloaderCore"],
             path: "Tests/IntegrationTests")
-        PKGEOF
+PKGEOF
         
+        # Run the integration test
         swift run IntegrationTests
+        
+        # Restore Package.swift
+        mv Package.swift.bak Package.swift
     
     - name: Download and merge short video
       run: |
