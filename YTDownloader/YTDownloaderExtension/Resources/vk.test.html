@@ -59,8 +59,8 @@
         </div>
 
         <div class="vk-actions" id="vk-watch-actions">
-            <button class="vk-action" type="button" aria-label="Нравится">Like</button>
-            <button class="vk-action" type="button" aria-label="Поделиться">Share</button>
+            <button class="vk-action" type="button" data-testid="video_page_like_button">6,4 тыс</button>
+            <button class="vk-action" type="button" data-testid="video_page_share_button">Поделиться</button>
         </div>
 
         <div class="vk-actions" id="vk-watch-text-only">
@@ -82,6 +82,12 @@
         <div data-testid="group-card" id="vk-official-card">
             <a href="/video-212451998_456243253">official</a>
             <a href="/club212451998" data-testid="owner-link">Abzaac</a>
+        </div>
+
+        <div id="vk-flat-grid">
+            <a href="/video-111_222" id="vk-flat-a">Всероссийские соревнования</a>
+            <a href="/video-333_444" id="vk-flat-b">Формула 1 2026</a>
+            <a href="/video-555_666" id="vk-flat-c">Велес Волга</a>
         </div>
     </div>
 
@@ -292,9 +298,33 @@
                 officialOk ? 'group-card received YD' : 'official card missed');
         }
 
+        function testFlatGridDoesNotSwallow() {
+            YTDVK.insertButtonsOnCards();
+            const a = document.querySelector('#vk-flat-a .ytd-card-download-button, #vk-flat-a + .ytd-card-button-container .ytd-card-download-button');
+            const buttons = document.querySelectorAll('#vk-flat-grid .ytd-card-download-button');
+            const ids = Array.from(buttons).map((b) => b.getAttribute('data-video-id')).sort();
+            const passed = buttons.length === 3
+                && ids.join(',') === '-111_222,-333_444,-555_666'
+                && document.getElementById('vk-flat-grid').getAttribute('data-ytd-card-button') !== 'added';
+            addResult('Flat grid gets per-tile YD (not one grid button)', passed,
+                passed ? 'Three href tiles each got YD' : `count=${buttons.length} ids=${ids.join(',')} first=${!!a}`);
+        }
+
+        function testVKButtonContrastClass() {
+            YTDVK.insertButtonOnWatchPage();
+            YTDVK.insertButtonsOnCards();
+            const watch = document.getElementById('ytd-download-button');
+            const card = document.querySelector('.ytd-card-download-button');
+            const passed = !!(watch && watch.classList.contains('ytd-vk') && card && card.classList.contains('ytd-vk'));
+            addResult('VK buttons carry ytd-vk contrast class', passed,
+                passed ? 'Watch + card YD use dark-site styles' : `watch=${watch && watch.className} card=${card && card.className}`);
+        }
+
         testCaptureBlockersDoNotSwallowClick();
         testTextOnlyWatchRow();
         testHrefVariants();
+        testFlatGridDoesNotSwallow();
+        testVKButtonContrastClass();
 
         const summary = document.createElement('div');
         summary.style.cssText = 'margin-top: 30px; padding: 20px; background: #f5f5f5; border-radius: 4px; font-size: 18px; font-weight: bold;';

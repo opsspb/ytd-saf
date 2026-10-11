@@ -29,6 +29,8 @@
     ];
 
     const WATCH_ACTION_SELECTORS = [
+        '[data-testid="video_page_like_button"]',
+        '[data-testid="video_page_share_button"]',
         '[data-testid="dropdownactionsheet"]',
         '[data-testid*="like"]',
         '[data-testid*="share"]',
@@ -72,7 +74,7 @@
         const button = document.createElement('button');
         button.id = BUTTON_ID;
         button.type = 'button';
-        button.className = 'ytd-watch-download-button';
+        button.className = 'ytd-watch-download-button ytd-vk';
         button.setAttribute('aria-label', 'Download with YTDownloader');
         button.textContent = 'YD';
         button.addEventListener('click', handleWatchPageClick);
@@ -236,10 +238,17 @@
 
     function collectVideoRefs(root) {
         const found = [];
-        const links = root.querySelectorAll('a[href]');
-        for (const link of links) {
+        const seen = new Set();
+        function consider(link) {
+            if (!link || seen.has(link) || !link.getAttribute) return;
             const ref = parseVKHref(link.getAttribute('href') || '');
-            if (ref) found.push({ link, ref });
+            if (!ref) return;
+            seen.add(link);
+            found.push({ link, ref });
+        }
+        consider(root);
+        if (root.querySelectorAll) {
+            root.querySelectorAll('a[href]').forEach(consider);
         }
         return found;
     }
@@ -264,20 +273,17 @@
             if (node.matches && node.matches('article, li, [role="listitem"]')) {
                 return node;
             }
-            node = node.parentElement;
+            const parent = node.parentElement;
+            if (!parent || parent === document.body || parent === document.documentElement) {
+                return node;
+            }
+            // Never swallow a whole home grid: stop before a parent with other videos.
+            if (collectVideoRefs(parent).length > 1) {
+                return node;
+            }
+            node = parent;
         }
-        let best = link.parentElement;
-        node = link.parentElement;
-        for (let i = 0; i < 8 && node && node !== document.body; i++) {
-            const refs = collectVideoRefs(node);
-            if (refs.length > 1) break;
-            best = node;
-            const testid = node.getAttribute && node.getAttribute('data-testid');
-            if (testid && /card|author|owner/i.test(testid)) return node;
-            if (node.querySelector && node.querySelector(AUTHOR_SELECTORS.join(','))) return node;
-            node = node.parentElement;
-        }
-        return best || link.parentElement;
+        return node;
     }
 
     function findAuthorAnchor(card) {
@@ -325,7 +331,7 @@
 
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = CARD_BUTTON_CLASS;
+        button.className = CARD_BUTTON_CLASS + ' ytd-vk';
         button.textContent = 'YD';
         button.setAttribute('aria-label', 'Download video');
         button.setAttribute('data-video-id', ref.id);
@@ -362,13 +368,16 @@
             add(node.closest('[data-testid="grid-item"]') || node.closest('[data-testid*="card"]') || node);
         });
         document.querySelectorAll('a[href]').forEach((link) => {
-            if (!parseVKHref(link.getAttribute('href') || '')) return;
+            const href = link.getAttribute('href') || '';
+            if (/[?&]t=/.test(href)) return;
+            if (!parseVKHref(href)) return;
             add(findCardRoot(link));
         });
         return cards;
     }
 
     function insertButtonsOnCards() {
+        const seenIds = new Set();
         collectCards().forEach((card) => {
             if (isSkippableCard(card)) {
                 markCard(card, 'skipped');
@@ -376,6 +385,11 @@
             }
             const video = findVideoLink(card);
             if (!video) return;
+            if (seenIds.has(video.ref.id)) {
+                markCard(card, 'added');
+                return;
+            }
+            seenIds.add(video.ref.id);
 
             if (card.querySelector('.' + CARD_BUTTON_CLASS)) {
                 markCard(card, 'added');

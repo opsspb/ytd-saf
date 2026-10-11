@@ -121,16 +121,18 @@ html[dark] .ytd-card-download-button:hover,
     transform: scale(0.96);
 }
 
-/* VK Video cards are usually dark; keep the same small pill readable. */
-[data-testid="grid-item"] .ytd-card-download-button,
-[data-testid="video_card_info_layout_container"] .ytd-card-download-button,
-[data-testid="clip-preview-owner"] .ytd-card-download-button,
-[data-testid="video_card_author"] ~ .ytd-card-button-container .ytd-card-download-button {
-    background: rgba(255, 255, 255, 0.12);
+/* VK Video is a dark site and does not define YouTube CSS variables.
+   Do not depend on data-testid — sport/official cards omit those. */
+.ytd-vk.ytd-watch-download-button,
+#ytd-download-button.ytd-vk,
+.ytd-vk.ytd-card-download-button {
+    background: rgba(255, 255, 255, 0.16);
     color: #f1f1f1;
+    border: 1px solid rgba(255, 255, 255, 0.22);
 }
 
-[data-testid="grid-item"] .ytd-card-download-button:hover,
-[data-testid="video_card_info_layout_container"] .ytd-card-download-button:hover {
-    background: rgba(255, 255, 255, 0.22);
+.ytd-vk.ytd-watch-download-button:hover,
+#ytd-download-button.ytd-vk:hover,
+.ytd-vk.ytd-card-download-button:hover {
+    background: rgba(255, 255, 255, 0.26);
 }

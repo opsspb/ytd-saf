@@ -363,12 +363,14 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
             }
             self.error = nil
             self.retryNote = nil
+            self.stage = .completed
             completedAt = Date()
         case .failed:
             if let error {
                 self.error = error
             }
             self.retryNote = nil
+            self.stage = .failed
             completedAt = Date()
         case .retrying:
             self.error = nil
@@ -378,6 +380,7 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         case .cancelled:
             self.error = nil
             self.retryNote = nil
+            self.stage = .cancelled
             completedAt = Date()
         case .queued, .downloading, .merging:
             if let retryNote {

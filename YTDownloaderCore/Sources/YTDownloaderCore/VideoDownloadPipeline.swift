@@ -605,6 +605,7 @@ public struct VideoDownloadPipeline: Sendable {
                 onMerging?()
             }
             if let kind = YTDLPProgress.streamKind(fromDestination: line) {
+                expected.set(0)
                 onTransfer?(TransferProgress(stream: kind))
             }
             if let transfer = YTDLPProgress.parseTransfer(line) {
@@ -616,6 +617,7 @@ public struct VideoDownloadPipeline: Sendable {
             let wrote = YTDLPProgress.allocatedBytes(in: workDir)
             guard wrote > 0 else { return }
             let total = expected.value
+            let stream = YTDLPProgress.activeStream(in: workDir)
             if total > 0 {
                 let fraction = min(Double(wrote) / Double(total), 0.99)
                 onProgress?(fraction)
@@ -623,10 +625,11 @@ public struct VideoDownloadPipeline: Sendable {
                     fraction: fraction,
                     sizeText: bytePair(wrote, total),
                     expectedBytes: total,
-                    downloadedBytes: wrote
+                    downloadedBytes: wrote,
+                    stream: stream
                 ))
             } else if wrote > 1_000_000 {
-                onTransfer?(TransferProgress(downloadedBytes: wrote, stream: .video))
+                onTransfer?(TransferProgress(downloadedBytes: wrote, stream: stream == .unknown ? .video : stream))
             }
         })
         let output = combinedOutput(result) + "\n" + captured.value

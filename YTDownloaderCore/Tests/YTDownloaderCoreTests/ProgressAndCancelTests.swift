@@ -17,6 +17,19 @@ final class ProgressAndCancelTests: XCTestCase {
         XCTAssertEqual(YTDLPProgress.byteCount("12MiB"), 12 * 1024 * 1024)
     }
 
+    func testDiskPollPrefersAria2Sidecar() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-aria2-poll-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let video = dir.appendingPathComponent("sorted.fdash_webm-5.webm")
+        let audio = dir.appendingPathComponent("sorted.fdash_sep-11.m4a")
+        try Data(repeating: 1, count: 8_000).write(to: video)
+        try Data(repeating: 2, count: 1_000).write(to: audio)
+        try Data("aria2".utf8).write(to: URL(fileURLWithPath: audio.path + ".aria2"))
+        XCTAssertEqual(YTDLPProgress.allocatedBytes(in: dir.path), YTDLPProgress.fileAllocatedBytes(audio))
+        XCTAssertEqual(YTDLPProgress.activeStream(in: dir.path), .audio)
+    }
+
     func testAppSupportOverride() {
         let url = AppSupport.directory(environment: [AppSupport.environmentKey: "/tmp/ytd-test-support"], arguments: [])
         XCTAssertEqual(url.path, "/tmp/ytd-test-support")

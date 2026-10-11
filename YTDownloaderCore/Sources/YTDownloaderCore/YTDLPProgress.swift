@@ -146,19 +146,37 @@ public enum YTDLPProgress {
     }
 
     public static func allocatedBytes(in directory: String) -> Int64 {
+        inProgressMedia(in: directory).reduce(0) { $0 + fileAllocatedBytes($1) }
+    }
+
+    public static func activeStream(in directory: String) -> TransferProgress.StreamKind {
+        let names = inProgressMedia(in: directory).map { $0.lastPathComponent.lowercased() }
+        if names.contains(where: { $0.contains(".m4a") || $0.contains("audio") || $0.contains(".opus") }) {
+            return .audio
+        }
+        if names.contains(where: { $0.contains(".webm") || $0.contains(".mp4") || $0.contains("fdash") || $0.contains("video") }) {
+            return .video
+        }
+        return .unknown
+    }
+
+    /// Files that still have an `.aria2` sidecar (the stream currently being written).
+    /// Falls back to every media file when aria2c is not in use.
+    public static func inProgressMedia(in directory: String) -> [URL] {
         let url = URL(fileURLWithPath: directory)
         guard let items = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        let media = items.filter { !$0.lastPathComponent.hasSuffix(".aria2") }
+        let active = media.filter { FileManager.default.fileExists(atPath: $0.path + ".aria2") }
+        return active.isEmpty ? media : active
+    }
+
+    public static func fileAllocatedBytes(_ item: URL) -> Int64 {
+        guard let values = try? item.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .fileSizeKey]) else {
             return 0
         }
-        var total: Int64 = 0
-        for item in items {
-            let name = item.lastPathComponent
-            if name.hasSuffix(".aria2") { continue }
-            if let values = try? item.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .fileSizeKey]) {
-                total += Int64(values.totalFileAllocatedSize ?? values.fileSize ?? 0)
-            }
-        }
-        return total
+        return Int64(values.totalFileAllocatedSize ?? values.fileSize ?? 0)
     }
 }
 
