@@ -92,26 +92,11 @@ final class AppWindowController: NSObject, NSWindowDelegate {
 
     func showSettings() {
         NSApp.activate(ignoringOtherApps: true)
-        if let window = existingSettingsWindow() {
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-            return
-        }
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: NSApp, from: nil)
         NSApp.sendAction(Selector(("showPreferencesWindow:")), to: NSApp, from: nil)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if let window = self.existingSettingsWindow() {
-                window.makeKeyAndOrderFront(nil)
-                window.orderFrontRegardless()
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            guard let self else { return }
-            let window = self.existingSettingsWindow() ?? self.ensureFallbackSettings()
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless()
-        }
+        let window = existingSettingsWindow() ?? ensureFallbackSettings()
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
     func suppressUnsolicitedWindows() {
@@ -156,20 +141,7 @@ final class AppWindowController: NSObject, NSWindowDelegate {
     }
 
     private func existingSettingsWindow() -> NSWindow? {
-        if let fallbackSettingsWindow, fallbackSettingsWindow.isVisible {
-            return fallbackSettingsWindow
-        }
-        let extras = NSApp.windows.filter { window in
-            guard window !== registeredQueueWindow else { return false }
-            guard window !== fallbackWindow else { return false }
-            guard window.identifier?.rawValue != AppScenes.queueWindowID else { return false }
-            if isSettingsWindow(window) { return true }
-            let style = window.styleMask
-            return style.contains(.titled)
-                && window.level == .normal
-                && window.frame.width < 700
-        }
-        return extras.first ?? fallbackSettingsWindow
+        NSApp.windows.first(where: { isSettingsWindow($0) }) ?? fallbackSettingsWindow
     }
 
     private func present(_ window: NSWindow, activate: Bool) {
@@ -235,27 +207,23 @@ final class AppWindowController: NSObject, NSWindowDelegate {
 
     private func ensureFallbackSettings() -> NSWindow {
         if let fallbackSettingsWindow { return fallbackSettingsWindow }
-        let window: NSWindow
-        if let downloads = AppSession.shared.downloadManager {
-            let hosting = NSHostingController(
-                rootView: SettingsView().environmentObject(downloads)
-            )
-            window = NSWindow(contentViewController: hosting)
-        } else {
-            window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
-                styleMask: [.titled, .closable, .resizable],
-                backing: .buffered,
-                defer: false
-            )
-        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: true
+        )
         window.title = "Settings"
         window.identifier = NSUserInterfaceItemIdentifier("settings")
-        window.setContentSize(NSSize(width: 520, height: 420))
-        window.styleMask = [.titled, .closable, .resizable]
         window.isReleasedWhenClosed = false
-        window.center()
         window.delegate = self
+        if let downloads = AppSession.shared.downloadManager {
+            window.contentViewController = NSHostingController(
+                rootView: SettingsView().environmentObject(downloads)
+            )
+        }
+        window.setContentSize(NSSize(width: 520, height: 420))
+        window.center()
         fallbackSettingsWindow = window
         return window
     }
