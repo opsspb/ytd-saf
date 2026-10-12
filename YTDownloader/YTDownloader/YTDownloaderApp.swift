@@ -19,11 +19,19 @@ struct YTDownloaderApp: App {
     }
 
     var body: some Scene {
+        MenuBarExtra {
+            StatusMenuContent(downloadManager: downloadManager)
+        } label: {
+            Text("YD")
+                .font(.system(size: 12, weight: .bold))
+        }
+        .menuBarExtraStyle(.menu)
+
         Window("YTDownloader", id: AppScenes.queueWindowID) {
             ContentView()
                 .environmentObject(downloadManager)
                 .environmentObject(binaryManager)
-                .background(QueueWindowBridge(tagWindow: true))
+                .background(QueueWindowBridge())
                 .onOpenURL { url in
                     NativeMessaging.shared.handle(url: url)
                 }
@@ -42,32 +50,17 @@ struct YTDownloaderApp: App {
         Settings {
             SettingsView()
                 .environmentObject(downloadManager)
-                .background(QueueWindowBridge(tagWindow: false))
         }
     }
 }
 
-/// Always-on SwiftUI hook so AppKit can call `openWindow(id: "queue")` and so
-/// the queue `NSWindow` is tagged even when the scene starts hidden.
+/// Tags the SwiftUI queue `NSWindow` so AppKit can bring it forward above Safari.
 private struct QueueWindowBridge: View {
-    var tagWindow = false
-    @Environment(\.openWindow) private var openWindow
-
     var body: some View {
-        Group {
-            if tagWindow {
-                QueueWindowConfigurator()
-            } else {
-                Color.clear
-            }
-        }
-        .frame(width: 0, height: 0)
-        .accessibilityHidden(true)
-        .onAppear {
-            AppWindowController.shared.openQueueScene = {
-                openWindow(id: AppScenes.queueWindowID)
-            }
-        }
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .background(QueueWindowConfigurator())
     }
 }
 

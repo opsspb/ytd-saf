@@ -18,7 +18,7 @@ final class AppSession {
         guard !started else { return }
         guard let downloads = downloadManager, let binaries = binaryManager else { return }
         started = true
-        StatusItemController.shared.install(downloadManager: downloads)
+        StatusMenuActions.shared.install(downloadManager: downloads)
         Task {
             await binaries.setup()
             downloads.resumeQueue()
@@ -59,21 +59,15 @@ final class AppWindowController: NSObject, NSWindowDelegate {
 
     func showQueue(activate: Bool) {
         userRequestedWindow = true
+        openQueueScene?()
+
         if let window = resolvedQueueWindow(), !isSettingsWindow(window) {
             present(window, activate: activate)
             return
         }
 
-        openQueueScene?()
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if let window = self.resolvedQueueWindow() {
-                self.present(window, activate: activate)
-                return
-            }
-            self.present(self.ensureFallbackWindow(), activate: activate)
-        }
+        // SwiftUI may create the Window(id: "queue") scene on the next turn.
+        presentQueueWhenReady(activate: activate, attemptsRemaining: 8)
     }
 
     func hideQueue() {
@@ -92,11 +86,23 @@ final class AppWindowController: NSObject, NSWindowDelegate {
 
     func showSettings() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: NSApp, from: nil)
-        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: NSApp, from: nil)
-        let window = existingSettingsWindow() ?? ensureFallbackSettings()
+        // Prefer a dedicated hosted Settings window. SwiftUI's Settings scene is
+        // unreliable from an LSUIElement status menu on some SDKs.
+        let window = ensureFallbackSettings()
+        window.collectionBehavior.insert(.moveToActiveSpace)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: NSApp, from: nil)
+        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: NSApp, from: nil)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            for candidate in NSApp.windows where self.isSettingsWindow(candidate) {
+                candidate.collectionBehavior.insert(.moveToActiveSpace)
+                candidate.makeKeyAndOrderFront(nil)
+                candidate.orderFrontRegardless()
+            }
+        }
     }
 
     func suppressUnsolicitedWindows() {
@@ -129,7 +135,8 @@ final class AppWindowController: NSObject, NSWindowDelegate {
         guard !isSettingsWindow(window) else { return false }
         if window === registeredQueueWindow || window === fallbackWindow { return true }
         if window.identifier?.rawValue == AppScenes.queueWindowID { return true }
-        return window.title == "YTDownloader" && !window.title.localizedCaseInsensitiveContains("Settings")
+        return window.title == "YTDownloader"
+            && !window.title.localizedCaseInsensitiveContains("Settings")
     }
 
     func isSettingsWindow(_ window: NSWindow) -> Bool {
@@ -142,6 +149,21 @@ final class AppWindowController: NSObject, NSWindowDelegate {
 
     private func existingSettingsWindow() -> NSWindow? {
         NSApp.windows.first(where: { isSettingsWindow($0) }) ?? fallbackSettingsWindow
+    }
+
+    private func presentQueueWhenReady(activate: Bool, attemptsRemaining: Int) {
+        if let window = resolvedQueueWindow(), !isSettingsWindow(window) {
+            present(window, activate: activate)
+            return
+        }
+        guard attemptsRemaining > 0 else {
+            present(ensureFallbackWindow(), activate: activate)
+            return
+        }
+        openQueueScene?()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.presentQueueWhenReady(activate: activate, attemptsRemaining: attemptsRemaining - 1)
+        }
     }
 
     private func present(_ window: NSWindow, activate: Bool) {
@@ -211,7 +233,7 @@ final class AppWindowController: NSObject, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
-            defer: true
+            defer: false
         )
         window.title = "Settings"
         window.identifier = NSUserInterfaceItemIdentifier("settings")
@@ -221,6 +243,8 @@ final class AppWindowController: NSObject, NSWindowDelegate {
             window.contentViewController = NSHostingController(
                 rootView: SettingsView().environmentObject(downloads)
             )
+        } else {
+            window.contentViewController = NSHostingController(rootView: Text("Settings unavailable"))
         }
         window.setContentSize(NSSize(width: 520, height: 420))
         window.center()
@@ -229,28 +253,15 @@ final class AppWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-/// Standard `NSMenu` on `NSStatusItem` so left- and right-click both open the
-/// system status menu (LM Studio). No custom row views, no `popUp`.
+/// Notification-driven helpers for the native status menu (MenuBarExtra).
 @MainActor
-final class StatusItemController: NSObject, NSMenuDelegate {
-    static let shared = StatusItemController()
+final class StatusMenuActions {
+    static let shared = StatusMenuActions()
 
-    private var statusItem: NSStatusItem?
-    private let menu = NSMenu()
     private weak var downloadManager: DownloadManager?
 
     func install(downloadManager: DownloadManager) {
         self.downloadManager = downloadManager
-        if statusItem == nil {
-            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-            if let button = item.button {
-                button.image = Self.templateIcon()
-                button.toolTip = "YTDownloader"
-            }
-            menu.delegate = self
-            item.menu = menu
-            statusItem = item
-        }
         NotificationCenter.default.removeObserver(self)
         NotificationCenter.default.addObserver(
             self,
@@ -260,24 +271,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        rebuildMenu(menu)
-    }
-
     @objc private func downloadDidEnqueue() {
         guard downloadManager?.settings.showWindowOnDownloadStart == true else { return }
         AppWindowController.shared.showQueue(activate: false)
     }
 
-    @objc private func showQueue(_ sender: Any?) {
-        AppWindowController.shared.showQueue(activate: true)
-    }
-
-    @objc private func showSettings(_ sender: Any?) {
-        AppWindowController.shared.showSettings()
-    }
-
-    @objc private func stopAll(_ sender: Any?) {
+    static func confirmStopAll(_ downloadManager: DownloadManager?) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Stop all downloads?"
@@ -289,75 +288,48 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             downloadManager?.stopAll()
         }
     }
+}
 
-    @objc private func quit(_ sender: Any?) {
-        NSApp.terminate(nil)
-    }
+/// Standard system status menu (LM Studio-style): MenuBarExtra(.menu) → plain NSMenu.
+struct StatusMenuContent: View {
+    @ObservedObject var downloadManager: DownloadManager
+    @Environment(\.openWindow) private var openWindow
 
-    private func rebuildMenu(_ menu: NSMenu) {
-        menu.removeAllItems()
+    var body: some View {
+        let model = StatusMenuModel.make(items: downloadManager.queue)
 
-        let model = StatusMenuModel.make(items: downloadManager?.queue ?? [])
-        let status = NSMenuItem(title: model.statusLine, action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
+        Button(model.statusLine) {}
+            .disabled(true)
 
-        let show = NSMenuItem(
-            title: StatusMenuSpec.showQueue,
-            action: #selector(showQueue(_:)),
-            keyEquivalent: ""
-        )
-        show.target = self
-        menu.addItem(show)
-
-        let stop = NSMenuItem(
-            title: StatusMenuSpec.stopAll,
-            action: #selector(stopAll(_:)),
-            keyEquivalent: ""
-        )
-        stop.target = self
-        menu.addItem(stop)
-
-        menu.addItem(.separator())
-
-        let settings = NSMenuItem(
-            title: StatusMenuSpec.settings,
-            action: #selector(showSettings(_:)),
-            keyEquivalent: ","
-        )
-        settings.target = self
-        settings.keyEquivalentModifierMask = [.command]
-        menu.addItem(settings)
-
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(
-            title: StatusMenuSpec.quit,
-            action: #selector(quit(_:)),
-            keyEquivalent: "q"
-        )
-        quit.target = self
-        menu.addItem(quit)
-    }
-
-    static func templateIcon() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            let text = "YD" as NSString
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-                .foregroundColor: NSColor.black
-            ]
-            let textSize = text.size(withAttributes: attrs)
-            let origin = NSPoint(
-                x: ((rect.width - textSize.width) / 2).rounded(.toNearestOrAwayFromZero),
-                y: ((rect.height - textSize.height) / 2).rounded(.toNearestOrAwayFromZero)
-            )
-            text.draw(at: origin, withAttributes: attrs)
-            return true
+        Button(StatusMenuSpec.showQueue) {
+            bindOpenWindow()
+            AppWindowController.shared.showQueue(activate: true)
         }
-        image.isTemplate = true
-        return image
+
+        Button(StatusMenuSpec.stopAll) {
+            StatusMenuActions.confirmStopAll(downloadManager)
+        }
+
+        Divider()
+
+        Button(StatusMenuSpec.settings) {
+            AppWindowController.shared.showSettings()
+        }
+        .keyboardShortcut(",")
+
+        Divider()
+
+        Button(StatusMenuSpec.quit) {
+            NSApp.terminate(nil)
+        }
+        .keyboardShortcut("q")
+        .onAppear(perform: bindOpenWindow)
+    }
+
+    private func bindOpenWindow() {
+        AppWindowController.shared.openQueueScene = {
+            openWindow(id: AppScenes.queueWindowID)
+        }
     }
 }
 
