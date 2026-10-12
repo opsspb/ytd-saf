@@ -68,6 +68,18 @@
             <div role="button" class="vk-action" style="width:90px;height:36px">Поделиться</div>
         </div>
 
+        <div id="vk-watch-modern" data-testid="video-page-info">
+            <div data-testid="video_page_title">Modern watch title</div>
+            <div class="vk-actions" id="vk-watch-modern-row">
+                <div data-testid="video_owner_container">Owner</div>
+                <div class="vk-actions">
+                    <div role="button" class="vk-action" style="width:40px;height:36px">6,4 тыс</div>
+                    <div role="button" class="vk-action" style="width:90px;height:36px">Поделиться</div>
+                    <div data-testid="dropdownactionsheet">⋯</div>
+                </div>
+            </div>
+        </div>
+
         <div id="vk-sport-card" class="sport-tile">
             <a href="/video-650000_456200001">Всероссийские соревнования</a>
             <div>ВФЛА ✓</div>
@@ -328,6 +340,19 @@
                 passed ? 'Watch + card YD use dark-site styles' : `watch=${watch && watch.className} card=${card && card.className}`);
         }
 
+        function testModernWatchInfoBlock() {
+            document.getElementById('vk-watch-text-only')?.remove();
+            const existing = document.getElementById('ytd-download-button');
+            if (existing) existing.remove();
+            // Use hash — file:// replaceState to an absolute path throws SecurityError.
+            history.replaceState({}, '', '#video-999_1000');
+            YTDVK.insertButtonOnWatchPage();
+            const row = document.getElementById('vk-watch-modern-row');
+            const button = document.getElementById('ytd-download-button');
+            const passed = !!button && row && row.contains(button);
+            addResult('Watch pill on video-page-info owner/actions row', passed,
+                passed ? 'YD next to modern Like/Share row' : `button=${!!button}`);
+        }
 
         function testAtChannelCard() {
             YTDVK.insertButtonsOnCards();
@@ -343,6 +368,7 @@
         testHrefVariants();
         testFlatGridDoesNotSwallow();
         testVKButtonContrastClass();
+        testModernWatchInfoBlock();
         testAtChannelCard();
 
         const summary = document.createElement('div');

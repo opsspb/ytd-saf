@@ -39,18 +39,23 @@
     const WATCH_ACTION_SELECTORS = [
         '[data-testid="video_page_like_button"]',
         '[data-testid="video_page_share_button"]',
-        '[data-testid="dropdownactionsheet"]',
-        '[data-testid*="like"]',
-        '[data-testid*="share"]',
-        '[data-testid*="action"]',
+        '[data-testid="video_card_share_button"]',
         'button[aria-label*="Share"]',
         'button[aria-label*="Поделиться"]',
         'button[aria-label*="Like"]',
         'button[aria-label*="Нравится"]',
         'button[aria-label*="Add to"]',
-        'button[aria-label*="Смотреть позже"]'
+        'button[aria-label*="Смотреть позже"]',
+        '[data-testid*="like"]',
+        '[data-testid*="share"]'
     ];
-    const WATCH_ACTION_TEXT = /поделиться|share|нравится|like|1\s*тыс|тыс\./i;
+    const WATCH_ACTION_FALLBACKS = [
+        '[data-testid="dropdownactionsheet"]',
+        '[data-testid="video_owner_container"]',
+        '[data-testid="video-page-info"]',
+        '[data-testid="video_page_title"]'
+    ];
+    const WATCH_ACTION_TEXT = /поделиться|share|нравится|like|1\s*тыс|тыс\.|watch later|смотреть позже/i;
 
     let observerActive = false;
     let lastQueued = null;
@@ -184,33 +189,62 @@
             if (!isUsable(node)) continue;
             if (WATCH_ACTION_TEXT.test(actionLabel(node))) return node;
         }
+        for (const selector of WATCH_ACTION_FALLBACKS) {
+            const nodes = document.querySelectorAll(selector);
+            for (const node of nodes) {
+                if (node) return node;
+            }
+        }
         return null;
     }
+
     function rowFromControl(node) {
+        // Only use video-page-info layout when the matched control lives inside it
+        // (or is the info block itself). Never steal an unrelated fixture/row.
+        const info = (node.getAttribute && node.getAttribute('data-testid') === 'video-page-info')
+            ? node
+            : node.closest('[data-testid="video-page-info"]');
+        if (info) {
+            const owner = info.querySelector('[data-testid="video_owner_container"]');
+            if (owner && owner.parentElement && owner.parentElement.children.length >= 2) {
+                return owner.parentElement;
+            }
+            const flexRows = info.querySelectorAll('[class*="vkuiFlex"], [class*="Flex"]');
+            for (const flex of flexRows) {
+                if (flex.children.length >= 2) return flex;
+            }
+        }
+
         let current = node;
-        for (let i = 0; i < 7 && current; i++) {
+        for (let i = 0; i < 8 && current; i++) {
             const parent = current.parentElement;
             if (!parent) break;
             const rect = parent.getBoundingClientRect ? parent.getBoundingClientRect() : { height: 40, width: 200 };
-            const kids = Array.from(parent.children).filter(isUsable);
-            if (kids.length >= 2 && rect.height > 8 && rect.height < 96 && rect.width > 80) {
+            const kids = Array.from(parent.children).filter((el) => {
+                if (!el.getBoundingClientRect) return true;
+                const r = el.getBoundingClientRect();
+                return r.height > 8;
+            });
+            if (kids.length >= 2 && rect.height > 8 && rect.height < 120 && rect.width > 80) {
                 return parent;
             }
             current = parent;
         }
         return node.parentElement;
     }
+
     function findWatchActionsRow() {
         const control = findWatchActionControl();
         if (control) {
             const row = rowFromControl(control);
-            if (row && isUsable(row)) return row;
+            if (row) return row;
             if (isUsable(control)) return control.parentElement || control;
         }
-        const title = document.querySelector('h1, [data-testid*="title"]');
+        const title = document.querySelector('[data-testid="video_page_title"], h1');
         if (title && title.parentElement) return title.parentElement;
         return null;
     }
+
     function insertButtonOnWatchPage() {
         const ref = getWatchRef();
         const existing = document.getElementById(BUTTON_ID);
@@ -226,6 +260,7 @@
         if (existing) existing.remove();
         actionsRow.appendChild(createWatchPageButton());
     }
+
     function cardAlreadyProcessed(card) {
         const state = card.getAttribute(CARD_BUTTON_MARKER);
         return state === 'added' || state === 'skipped';
