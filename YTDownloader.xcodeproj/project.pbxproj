@@ -14,6 +14,9 @@
 		AA0000010000000000000005 /* NativeMessaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000015 /* NativeMessaging.swift */; };
 		AA0000010000000000000006 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000016 /* SettingsView.swift */; };
 		AA0000010000000000000009 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000017 /* AppDelegate.swift */; };
+		AA000001000000000000000A /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000018 /* MenuBarController.swift */; };
+		AA000001000000000000000B /* YTDownloader.icns in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000025 /* YTDownloader.icns */; };
+		AA000001000000000000000C /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000024 /* AppIcon.icns */; };
 		AA0000010000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000021 /* Assets.xcassets */; };
 		AA0000010000000000000008 /* YTDownloaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000010000000000000031 /* YTDownloaderCore */; };
 		AA0000010000000000000101 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000111 /* SafariWebExtensionHandler.swift */; };
@@ -24,6 +27,7 @@
 		AA0000010000000000000106 /* icon-48.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000127 /* icon-48.png */; };
 		AA0000010000000000000107 /* icon-96.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000128 /* icon-96.png */; };
 		AA0000010000000000000108 /* icon-128.png in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000129 /* icon-128.png */; };
+		AA0000010000000000000109 /* vk.js in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000130 /* vk.js */; };
 		AA0000010000000000000151 /* YTDownloaderExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000141 /* YTDownloaderExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -59,12 +63,16 @@
 		AA0000010000000000000015 /* NativeMessaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMessaging.swift; sourceTree = "<group>"; };
 		AA0000010000000000000016 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AA0000010000000000000017 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		AA0000010000000000000018 /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
+		AA0000010000000000000024 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; name = AppIcon.icns; path = YTDownloader/Resources/AppIcon.icns; sourceTree = "<group>"; };
+		AA0000010000000000000025 /* YTDownloader.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; name = YTDownloader.icns; path = YTDownloader/Resources/YTDownloader.icns; sourceTree = "<group>"; };
 		AA0000010000000000000021 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = YTDownloader/Resources/Assets.xcassets; sourceTree = "<group>"; };
 		AA0000010000000000000022 /* YTDownloader.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = YTDownloader.entitlements; sourceTree = "<group>"; };
 		AA0000010000000000000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0000010000000000000111 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
 		AA0000010000000000000121 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
 		AA0000010000000000000122 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = content.js; sourceTree = "<group>"; };
+		AA0000010000000000000130 /* vk.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = vk.js; sourceTree = "<group>"; };
 		AA0000010000000000000123 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = background.js; sourceTree = "<group>"; };
 		AA0000010000000000000124 /* styles.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = styles.css; sourceTree = "<group>"; };
 		AA0000010000000000000127 /* icon-48.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "icon-48.png"; sourceTree = "<group>"; };
@@ -101,6 +109,7 @@
 			children = (
 				AA0000010000000000000011 /* YTDownloaderApp.swift */,
 				AA0000010000000000000017 /* AppDelegate.swift */,
+				AA0000010000000000000018 /* MenuBarController.swift */,
 				AA0000010000000000000012 /* ContentView.swift */,
 				AA0000010000000000000013 /* DownloadManager.swift */,
 				AA0000010000000000000014 /* BinaryManager.swift */,
@@ -137,6 +146,7 @@
 			children = (
 				AA0000010000000000000121 /* manifest.json */,
 				AA0000010000000000000122 /* content.js */,
+				AA0000010000000000000130 /* vk.js */,
 				AA0000010000000000000123 /* background.js */,
 				AA0000010000000000000124 /* styles.css */,
 				AA0000010000000000000127 /* icon-48.png */,
@@ -152,6 +162,8 @@
 				AA0000010000000000000171 /* YTDownloader */,
 				AA0000010000000000000172 /* YTDownloaderExtension */,
 				AA0000010000000000000021 /* Assets.xcassets */,
+				AA0000010000000000000024 /* AppIcon.icns */,
+				AA0000010000000000000025 /* YTDownloader.icns */,
 				AA0000010000000000000173 /* Products */,
 				AA0000010000000000000192 /* Packages */,
 			);
@@ -214,8 +226,8 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					AA0000010000000000000211 = {
 						CreatedOnToolsVersion = 15.0;
@@ -253,6 +265,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000010000000000000007 /* Assets.xcassets in Resources */,
+				AA000001000000000000000B /* YTDownloader.icns in Resources */,
+				AA000001000000000000000C /* AppIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -262,6 +276,7 @@
 			files = (
 				AA0000010000000000000102 /* manifest.json in Resources */,
 				AA0000010000000000000103 /* content.js in Resources */,
+				AA0000010000000000000109 /* vk.js in Resources */,
 				AA0000010000000000000104 /* background.js in Resources */,
 				AA0000010000000000000105 /* styles.css in Resources */,
 				AA0000010000000000000106 /* icon-48.png in Resources */,
@@ -284,6 +299,7 @@
 				AA0000010000000000000005 /* NativeMessaging.swift in Sources */,
 				AA0000010000000000000006 /* SettingsView.swift in Sources */,
 				AA0000010000000000000009 /* AppDelegate.swift in Sources */,
+				AA000001000000000000000A /* MenuBarController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -340,6 +356,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -360,6 +377,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -403,6 +421,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -417,6 +436,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -432,7 +452,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "YTDownloader/YTDownloader/Info.plist";
@@ -459,7 +479,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "YTDownloader/YTDownloader/Info.plist";
@@ -484,7 +504,7 @@
 				CODE_SIGN_ENTITLEMENTS = "YTDownloader/YTDownloaderExtension/YTDownloaderExtension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "YTDownloader/YTDownloaderExtension/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "YTDownloader Extension";
@@ -509,7 +529,7 @@
 				CODE_SIGN_ENTITLEMENTS = "YTDownloader/YTDownloaderExtension/YTDownloaderExtension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "YTDownloader/YTDownloaderExtension/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "YTDownloader Extension";

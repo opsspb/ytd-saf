@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import YTDownloaderCore
 
 class NativeMessaging: ObservableObject {
     static let shared = NativeMessaging()
@@ -22,14 +23,19 @@ class NativeMessaging: ObservableObject {
     }
 
     func handle(url: URL) {
-        guard url.scheme == "ytdownloader" else { return }
-        guard url.host == "download" || url.path == "/download" || url.path.isEmpty else { return }
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
-        let items = components.queryItems ?? []
-        let videoId = items.first(where: { $0.name == "videoId" })?.value
-        let videoURL = items.first(where: { $0.name == "url" })?.value
-        guard let videoId, let videoURL else { return }
-        enqueue(videoId: videoId, url: videoURL)
+        guard let command = AppURL.parse(url) else { return }
+        switch command {
+        case .showQueue:
+            Task { @MainActor in
+                AppWindowController.shared.showQueue(activate: true)
+            }
+        case .showSettings:
+            Task { @MainActor in
+                AppWindowController.shared.showSettings()
+            }
+        case .download(let videoId, let url):
+            enqueue(videoId: videoId, url: url)
+        }
     }
 
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, replyEvent: NSAppleEventDescriptor) {

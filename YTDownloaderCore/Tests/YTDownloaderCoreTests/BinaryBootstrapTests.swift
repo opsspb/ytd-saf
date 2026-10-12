@@ -23,6 +23,13 @@ final class BinaryBootstrapTests: XCTestCase {
             "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip"
         )
         XCTAssertTrue(BinaryBootstrap.ytdlpURL().absoluteString.contains("yt-dlp_macos"))
+        XCTAssertTrue(BinaryBootstrap.aria2cURL(arch: "arm64").absoluteString.contains("macos-arm64"))
+        XCTAssertTrue(BinaryBootstrap.aria2cURL(arch: "amd64").absoluteString.contains("macos-x64"))
+        XCTAssertTrue(BinaryBootstrap.aria2cURL(arch: "arm64").absoluteString.contains("aria2c-1.37.0"))
+    }
+
+    func testDetectsXZArchive() {
+        XCTAssertEqual(DownloadedFileKind.detect(data: Data([0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00, 0x00])), .xz)
     }
 
     func testBootstrapErrorMessageIsActionable() {

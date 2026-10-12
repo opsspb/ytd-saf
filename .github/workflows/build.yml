@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, cursor/* ]
+    branches: [ main, cursor/*, v2-* ]
   pull_request:
     branches: [ main ]
 
@@ -23,7 +23,9 @@ jobs:
         swift test --parallel
 
     - name: Run content script tests
-      run: swift Scripts/run-content-tests.swift
+      run: |
+        swift Scripts/run-content-tests.swift
+        swift Scripts/run-content-tests.swift YTDownloader/YTDownloaderExtension/Resources/vk.test.html
     
     - name: Build app
       run: |

@@ -46,8 +46,9 @@ struct YTDE2E {
             print("  yt-dlp: \(paths.ytdlp)")
             print("  ffmpeg: \(paths.ffmpeg)")
             print("  ffprobe: \(paths.ffprobe)")
+            print("  aria2c: \(paths.aria2c ?? "unavailable (plain yt-dlp fallback)")")
 
-            let pipeline = VideoDownloadPipeline(ytdlpPath: paths.ytdlp, ffmpegPath: paths.ffmpeg)
+            let pipeline = VideoDownloadPipeline(ytdlpPath: paths.ytdlp, ffmpegPath: paths.ffmpeg, aria2cPath: paths.aria2c)
             var failures = 0
 
             for url in urls {

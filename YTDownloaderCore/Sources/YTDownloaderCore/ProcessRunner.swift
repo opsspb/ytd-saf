@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public struct ProcessRunResult: Sendable {
@@ -5,6 +6,15 @@ public struct ProcessRunResult: Sendable {
     public let stderr: String
     public let status: Int32
     public let timedOut: Bool
+    public let cancelled: Bool
+
+    public init(stdout: String, stderr: String, status: Int32, timedOut: Bool, cancelled: Bool = false) {
+        self.stdout = stdout
+        self.stderr = stderr
+        self.status = status
+        self.timedOut = timedOut
+        self.cancelled = cancelled
+    }
 }
 
 public enum ProcessRunner {
@@ -14,13 +24,17 @@ public enum ProcessRunner {
         executable: String,
         arguments: [String],
         timeout: TimeInterval = 15,
-        onOutput: (@Sendable (String) -> Void)? = nil
+        cancellation: ProcessCancellation? = nil,
+        onOutput: (@Sendable (String) -> Void)? = nil,
+        onTick: (@Sendable () -> Void)? = nil
     ) throws -> ProcessRunResult {
         return try runToFiles(
             executable: executable,
             arguments: arguments,
             timeout: timeout,
-            onOutput: onOutput
+            cancellation: cancellation,
+            onOutput: onOutput,
+            onTick: onTick
         )
     }
 
@@ -28,7 +42,9 @@ public enum ProcessRunner {
         executable: String,
         arguments: [String],
         timeout: TimeInterval,
-        onOutput: (@Sendable (String) -> Void)?
+        cancellation: ProcessCancellation?,
+        onOutput: (@Sendable (String) -> Void)?,
+        onTick: (@Sendable () -> Void)?
     ) throws -> ProcessRunResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -52,8 +68,8 @@ public enum ProcessRunner {
         process.standardOutput = outHandle
         process.standardError = errHandle
 
-        let stop = tailFiles([outURL, errURL], onOutput: onOutput)
-        let timedOut = try wait(for: process, timeout: timeout)
+        let stop = tailFiles([outURL, errURL], onOutput: onOutput, onTick: onTick)
+        let outcome = try wait(for: process, timeout: timeout, cancellation: cancellation)
         stop()
         try? outHandle.close()
         try? errHandle.close()
@@ -61,13 +77,15 @@ public enum ProcessRunner {
             stdout: (try? String(contentsOf: outURL, encoding: .utf8)) ?? "",
             stderr: (try? String(contentsOf: errURL, encoding: .utf8)) ?? "",
             status: process.terminationStatus,
-            timedOut: timedOut
+            timedOut: outcome == .timedOut,
+            cancelled: outcome == .cancelled
         )
     }
 
     private static func tailFiles(
         _ urls: [URL],
-        onOutput: (@Sendable (String) -> Void)?
+        onOutput: (@Sendable (String) -> Void)?,
+        onTick: (@Sendable () -> Void)?
     ) -> () -> Void {
         guard let onOutput else { return {} }
         let lock = NSLock()
@@ -97,6 +115,7 @@ public enum ProcessRunner {
                 lock.unlock()
                 if !keep { break }
                 tick()
+                onTick?()
                 Thread.sleep(forTimeInterval: 0.2)
             }
             tick()
@@ -109,23 +128,47 @@ public enum ProcessRunner {
         }
     }
 
-    private static func wait(for process: Process, timeout: TimeInterval) throws -> Bool {
+    private enum WaitOutcome {
+        case finished
+        case timedOut
+        case cancelled
+    }
+
+    private static func wait(
+        for process: Process,
+        timeout: TimeInterval,
+        cancellation: ProcessCancellation?
+    ) throws -> WaitOutcome {
+        if cancellation?.isCancelled == true {
+            return .cancelled
+        }
         let group = DispatchGroup()
         group.enter()
         process.terminationHandler = { _ in group.leave() }
         try process.run()
-        let result = group.wait(timeout: .now() + timeout)
-        if result == .timedOut {
-            if process.isRunning {
-                process.terminate()
+        let pid = process.processIdentifier
+        setpgid(pid, pid)
+        cancellation?.attach(pid: pid)
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            if cancellation?.isCancelled == true {
+                ProcessCancellation.killTree(pid)
                 _ = group.wait(timeout: .now() + 1)
-                if process.isRunning {
-                    process.interrupt()
-                    kill(process.processIdentifier, SIGKILL)
-                }
+                return .cancelled
             }
-            return true
+            let remaining = deadline.timeIntervalSinceNow
+            if remaining <= 0 {
+                if process.isRunning {
+                    ProcessCancellation.killTree(pid)
+                    _ = group.wait(timeout: .now() + 1)
+                }
+                return .timedOut
+            }
+            let slice = min(remaining, 0.2)
+            if group.wait(timeout: .now() + slice) == .success {
+                return cancellation?.isCancelled == true ? .cancelled : .finished
+            }
         }
-        return false
     }
 }

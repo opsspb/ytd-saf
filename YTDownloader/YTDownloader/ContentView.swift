@@ -139,20 +139,37 @@ struct InstructionRow: View {
 
 struct DownloadQueueView: View {
     @EnvironmentObject var downloadManager: DownloadManager
+    @State private var confirmStopAll = false
     
     var body: some View {
         VStack(spacing: 0) {
-            if downloadManager.hasFinishedItems {
-                HStack {
-                    Spacer()
+            HStack {
+                if downloadManager.queue.contains(where: { $0.status != .completed }) {
+                    Button("Stop all") {
+                        confirmStopAll = true
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                }
+                Spacer()
+                if downloadManager.hasFinishedItems {
                     Button("Clear finished/failed") {
                         downloadManager.clearFinished()
                     }
                     .buttonStyle(.borderless)
                     .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
                 }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .confirmationDialog("Stop all downloads?", isPresented: $confirmStopAll, titleVisibility: .visible) {
+                Button("Stop all", role: .destructive) {
+                    downloadManager.stopAll()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Cancels the active download, removes queued items, and deletes partial files.")
             }
             List(selection: $downloadManager.selectedItemID) {
                 ForEach(downloadManager.queue) { item in
@@ -182,12 +199,13 @@ struct DownloadQueueView: View {
 }
 
 struct DownloadItemRow: View {
+    @EnvironmentObject var downloadManager: DownloadManager
     let item: DownloadItem
     
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.title ?? item.videoId)
+                Text(item.displayTitle)
                     .lineLimit(1)
                 
                 Text(statusText)
@@ -198,6 +216,16 @@ struct DownloadItemRow: View {
             
             Spacer()
             
+            if item.status != .completed {
+                Button {
+                    downloadManager.cancelItem(id: item.id)
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Cancel")
+            }
             statusIcon
         }
         .padding(.vertical, 4)
@@ -219,6 +247,9 @@ struct DownloadItemRow: View {
         case .completed:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundColor(.green)
+        case .cancelled:
+            Image(systemName: "stop.circle")
+                .foregroundColor(.secondary)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.red)
@@ -227,16 +258,37 @@ struct DownloadItemRow: View {
 }
 
 struct DownloadDetailView: View {
+    @EnvironmentObject var downloadManager: DownloadManager
     let item: DownloadItem
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(item.title ?? item.videoId)
+            Text(item.displayTitle)
                 .font(.title2)
             
             LabeledContent("Status", value: item.listStatusText)
+            if let formatSummary = item.formatSummary, !formatSummary.isEmpty {
+                LabeledContent("Format", value: formatSummary)
+            }
             LabeledContent("Video ID", value: item.videoId)
             LabeledContent("URL", value: item.url)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Stages")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                ForEach(item.stageSteps, id: \.self) { step in
+                    Text(step)
+                        .font(.caption)
+                        .foregroundColor(step.hasPrefix("→") ? .primary : .secondary)
+                }
+            }
+
+            if item.status != .completed {
+                Button("Cancel this download", role: .destructive) {
+                    downloadManager.cancelItem(id: item.id)
+                }
+            }
             
             if item.status == .downloading || item.status == .merging {
                 ProgressView(value: item.progress, total: 1.0)
