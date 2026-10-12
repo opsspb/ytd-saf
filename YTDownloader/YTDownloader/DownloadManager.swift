@@ -27,6 +27,10 @@ class DownloadManager: ObservableObject {
         return queue.first(where: { $0.id == selectedItemID })
     }
 
+    var menuBarStatusLine: String {
+        MenuBarStatus.line(items: queue)
+    }
+
     init(supportDirectory: URL? = nil) {
         let root = supportDirectory ?? AppSupport.directory()
         self.supportDirectory = root
