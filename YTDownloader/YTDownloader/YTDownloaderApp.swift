@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import YTDownloaderCore
 
 @main
 struct YTDownloaderApp: App {
@@ -40,10 +41,18 @@ struct YTDownloaderApp: App {
                 }
         }
         .defaultSize(width: 860, height: 560)
+        // Avoid auto-opening this scene for every external event; URLs are
+        // handled via AppDelegate / Apple Events and may call openWindow(id:).
         .handlesExternalEvents(matching: Set<String>())
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About YTDownloader") {}
+            }
+            CommandGroup(replacing: .appSettings) {
+                Button(StatusMenuSpec.settings) {
+                    AppWindowController.shared.showSettings()
+                }
+                .keyboardShortcut(",", modifiers: .command)
             }
         }
 
@@ -54,13 +63,21 @@ struct YTDownloaderApp: App {
     }
 }
 
-/// Tags the SwiftUI queue `NSWindow` so AppKit can bring it forward above Safari.
+/// Tags the SwiftUI queue `NSWindow` so AppKit can bring it forward above Safari,
+/// and refreshes `openWindow(id: "queue")` for reopen-after-close / URL handoff.
 private struct QueueWindowBridge: View {
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
             .background(QueueWindowConfigurator())
+            .onAppear {
+                AppWindowController.shared.openQueueScene = {
+                    openWindow(id: AppScenes.queueWindowID)
+                }
+            }
     }
 }
 

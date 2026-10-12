@@ -298,8 +298,8 @@ struct StatusMenuContent: View {
     var body: some View {
         let model = StatusMenuModel.make(items: downloadManager.queue)
 
-        Button(model.statusLine) {}
-            .disabled(true)
+        // Plain Text → system menu label (disabled), not a custom row view.
+        Text(model.statusLine)
 
         Button(StatusMenuSpec.showQueue) {
             bindOpenWindow()
@@ -315,14 +315,14 @@ struct StatusMenuContent: View {
         Button(StatusMenuSpec.settings) {
             AppWindowController.shared.showSettings()
         }
-        .keyboardShortcut(",")
+        .keyboardShortcut(",", modifiers: .command)
 
         Divider()
 
         Button(StatusMenuSpec.quit) {
             NSApp.terminate(nil)
         }
-        .keyboardShortcut("q")
+        .keyboardShortcut("q", modifiers: .command)
         .onAppear(perform: bindOpenWindow)
     }
 
