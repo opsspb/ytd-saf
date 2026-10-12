@@ -44,7 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func windowBecameVisible(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         Task { @MainActor in
-            AppWindowController.shared.register(window)
             guard AppWindowController.shared.shouldSuppressUnsolicited(window) else { return }
             window.orderOut(nil)
         }
