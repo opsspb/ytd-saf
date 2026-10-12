@@ -37,7 +37,6 @@ final class AppWindowController: NSObject, NSWindowDelegate {
     private(set) var userRequestedWindow = false
     var launchSuppressionDeadline = Date.distantPast
     var openQueueScene: (() -> Void)?
-    var openSettingsScene: (() -> Void)?
 
     private var registeredQueueWindow: NSWindow?
     private var fallbackWindow: NSWindow?
@@ -98,7 +97,6 @@ final class AppWindowController: NSObject, NSWindowDelegate {
             window.orderFrontRegardless()
             return
         }
-        openSettingsScene?()
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: NSApp, from: nil)
         NSApp.sendAction(Selector(("showPreferencesWindow:")), to: NSApp, from: nil)
         DispatchQueue.main.async { [weak self] in

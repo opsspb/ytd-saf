@@ -63,7 +63,6 @@ private struct QueueWindowBridge: View {
         }
         .frame(width: 0, height: 0)
         .accessibilityHidden(true)
-        .background(OpenSettingsBinder())
         .onAppear {
             AppWindowController.shared.openQueueScene = {
                 openWindow(id: AppScenes.queueWindowID)
@@ -92,38 +91,5 @@ private struct QueueWindowConfigurator: NSViewRepresentable {
         Task { @MainActor in
             AppWindowController.shared.register(window)
         }
-    }
-}
-
-private struct OpenSettingsBinder: View {
-    var body: some View {
-        Group {
-            if #available(macOS 14.0, *) {
-                OpenSettingsBinder14()
-            } else {
-                Color.clear
-                    .frame(width: 0, height: 0)
-                    .onAppear {
-                        AppWindowController.shared.openSettingsScene = {
-                            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: NSApp, from: nil)
-                        }
-                    }
-            }
-        }
-    }
-}
-
-@available(macOS 14.0, *)
-private struct OpenSettingsBinder14: View {
-    @Environment(\.openSettings) private var openSettings
-
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .onAppear {
-                AppWindowController.shared.openSettingsScene = {
-                    openSettings()
-                }
-            }
     }
 }
