@@ -59,7 +59,8 @@ public struct VideoDownloadPipeline: Sendable {
         outputPath: String,
         useCookies: Bool,
         fallbackFormat: String? = nil,
-        onProgress: (@Sendable (Double) -> Void)? = nil
+        onProgress: (@Sendable (Double) -> Void)? = nil,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil
     ) throws {
         var lastError: Error = DownloadError.downloadFailed("No format available")
         var candidates = [formatId]
@@ -73,7 +74,8 @@ public struct VideoDownloadPipeline: Sendable {
                     formatId: format,
                     outputPath: outputPath,
                     useCookies: useCookies,
-                    onProgress: onProgress
+                    onProgress: onProgress,
+                    onTransfer: onTransfer
                 )
                 return
             } catch {
@@ -93,25 +95,26 @@ public struct VideoDownloadPipeline: Sendable {
         formatId: String,
         outputPath: String,
         useCookies: Bool,
-        onProgress: (@Sendable (Double) -> Void)?
+        onProgress: (@Sendable (Double) -> Void)?,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil
     ) throws {
         var args = [
             "-f", formatId,
             "-o", outputPath,
             "--no-warnings",
-            "--no-part",
-            "--newline",
-            "--progress",
-            "--progress-delta", "0.2",
-            "--progress-template", "download:%(progress._percent_str)s",
-            url
+            "--no-part"
         ]
+        args.append(contentsOf: YTDLPProgress.progressCLIArgs)
+        args.append(url)
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        let session = ProgressSessionBox()
         let result = try run(ytdlpPath, arguments: args, onOutput: { line in
-            if let progress = YTDLPProgress.parse(line) {
-                onProgress?(progress)
-            }
+            Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: onTransfer, onMerging: nil)
         })
+        if let done = session.finish() {
+            onTransfer?(done)
+            onProgress?(1)
+        }
         if result.status != 0 {
             let output = result.stderr.isEmpty ? result.stdout : result.stderr
             throw ErrorClassifier().classifyError(from: output)
@@ -149,6 +152,7 @@ public struct VideoDownloadPipeline: Sendable {
         fallbackVideoFormatIds: [String] = [],
         fallbackSpec: String? = "bestvideo*+bestaudio/best",
         onProgress: (@Sendable (Double) -> Void)? = nil,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil,
         onMerging: (@Sendable () -> Void)? = nil
     ) throws {
         defer { removeMergeSidecars(outputPath: outputPath) }
@@ -170,6 +174,7 @@ public struct VideoDownloadPipeline: Sendable {
                     videoProtocol: index == 0 ? videoProtocol : nil,
                     fallbackSpec: index == 0 ? fallbackSpec : nil,
                     onProgress: onProgress,
+                    onTransfer: onTransfer,
                     onMerging: onMerging
                 )
                 return
@@ -195,6 +200,7 @@ public struct VideoDownloadPipeline: Sendable {
         videoProtocol: String?,
         fallbackSpec: String?,
         onProgress: (@Sendable (Double) -> Void)?,
+        onTransfer: (@Sendable (TransferProgress) -> Void)?,
         onMerging: (@Sendable () -> Void)?
     ) throws {
         if isHLSProtocol(videoProtocol) {
@@ -205,6 +211,7 @@ public struct VideoDownloadPipeline: Sendable {
                 outputPath: outputPath,
                 useCookies: useCookies,
                 onProgress: onProgress,
+                onTransfer: onTransfer,
                 onMerging: onMerging
             )
             return
@@ -228,6 +235,7 @@ public struct VideoDownloadPipeline: Sendable {
                     outputPath: tempOutput,
                     useCookies: useCookies,
                     onProgress: onProgress,
+                    onTransfer: onTransfer,
                     onMerging: onMerging
                 )
                 try installFinalOutput(from: tempOutput, to: outputPath)
@@ -246,6 +254,7 @@ public struct VideoDownloadPipeline: Sendable {
                         outputPath: outputPath,
                         useCookies: useCookies,
                         onProgress: onProgress,
+                        onTransfer: onTransfer,
                         onMerging: onMerging
                     )
                     return
@@ -269,6 +278,7 @@ public struct VideoDownloadPipeline: Sendable {
         outputPath: String,
         useCookies: Bool,
         onProgress: (@Sendable (Double) -> Void)?,
+        onTransfer: (@Sendable (TransferProgress) -> Void)?,
         onMerging: (@Sendable () -> Void)?
     ) throws {
         var args = [
@@ -278,21 +288,14 @@ public struct VideoDownloadPipeline: Sendable {
             "-o", outputPath,
             "--no-warnings",
             "--no-part",
-            "--force-overwrites",
-            "--newline",
-            "--progress",
-            "--progress-delta", "0.2",
-            "--progress-template", "download:%(progress._percent_str)s",
-            url
+            "--force-overwrites"
         ]
+        args.append(contentsOf: YTDLPProgress.progressCLIArgs)
+        args.append(url)
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        let session = ProgressSessionBox()
         let result = try run(ytdlpPath, arguments: args, onOutput: { line in
-            if line.contains("[Merger]") || line.contains("[Fixup]") {
-                onMerging?()
-            }
-            if let progress = YTDLPProgress.parse(line) {
-                onProgress?(progress)
-            }
+            Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: onTransfer, onMerging: onMerging)
         })
         if result.status != 0 {
             let output = combinedOutput(result)
@@ -314,6 +317,7 @@ public struct VideoDownloadPipeline: Sendable {
         outputPath: String,
         useCookies: Bool,
         onProgress: (@Sendable (Double) -> Void)?,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil,
         onMerging: (@Sendable () -> Void)?
     ) throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-hls-\(UUID().uuidString)")
@@ -322,20 +326,36 @@ public struct VideoDownloadPipeline: Sendable {
 
         let videoFile = tempDir.appendingPathComponent("video.mp4").path
         let audioFile = tempDir.appendingPathComponent("audio.m4a").path
+        onTransfer?(TransferProgress(fraction: 0, stream: .video))
         try downloadFormat(
             url: url,
             formatId: videoFormatId,
             outputPath: videoFile,
             useCookies: useCookies,
-            onProgress: { onProgress?($0 * 0.7) }
+            onProgress: onProgress,
+            onTransfer: { transfer in
+                var copy = transfer
+                if copy.stream == .unknown { copy.stream = .video }
+                onTransfer?(copy)
+            }
         )
+        onTransfer?(TransferProgress(fraction: 1, stream: .video))
+        onProgress?(1)
+        onTransfer?(TransferProgress(fraction: 0, stream: .audio))
         try downloadFormat(
             url: url,
             formatId: audioFormatId,
             outputPath: audioFile,
             useCookies: useCookies,
-            onProgress: { onProgress?(0.7 + $0 * 0.2) }
+            onProgress: onProgress,
+            onTransfer: { transfer in
+                var copy = transfer
+                if copy.stream == .unknown { copy.stream = .audio }
+                onTransfer?(copy)
+            }
         )
+        onTransfer?(TransferProgress(fraction: 1, stream: .audio))
+        onProgress?(1)
         onMerging?()
         let remuxed = try remuxCopyToMP4IfNeeded(videoFile)
         try merge(videoPath: remuxed, audioPath: audioFile, outputPath: outputPath)
@@ -517,6 +537,7 @@ public struct VideoDownloadPipeline: Sendable {
                         outputPath: tempOutput,
                         useCookies: useCookies,
                         onProgress: onProgress,
+                        onTransfer: onTransfer,
                         onMerging: onMerging
                     )
                     choice = recovered
@@ -583,36 +604,25 @@ public struct VideoDownloadPipeline: Sendable {
             "--no-warnings",
             "--no-part",
             "--force-overwrites",
-            "--no-simulate",
-            "--newline",
-            "--progress",
-            "--progress-delta", "0.2",
-            "--progress-template", "download:%(progress._percent_str)s",
-            "--print", YTDLPOutputParser.metaPrintTemplate(),
-            url
+            "--no-simulate"
         ]
+        args.append(contentsOf: YTDLPProgress.progressCLIArgs)
+        args.append(contentsOf: ["--print", YTDLPOutputParser.metaPrintTemplate(), url])
         let aria2c = useExternalDownloader ? aria2cPath : nil
         args.insert(contentsOf: adapter.downloadArgs(aria2cPath: aria2c), at: args.count - 1)
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
         let workDir = (outputPath as NSString).deletingLastPathComponent
         let expected = LockedBytes()
+        let session = ProgressSessionBox()
         let result = try run(ytdlpPath, arguments: args, cancellation: cancellation, onOutput: { line in
             captured.append(line)
             if let meta = YTDLPOutputParser.parseMeta(from: line) {
                 onMeta?(meta)
             }
-            if line.contains("[Merger]") || line.contains("[Fixup]") || line.contains("[Remux]") {
-                onMerging?()
-            }
-            if let kind = YTDLPProgress.streamKind(fromDestination: line) {
-                expected.set(0)
-                onTransfer?(TransferProgress(stream: kind))
-            }
-            if let transfer = YTDLPProgress.parseTransfer(line) {
+            Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: { transfer in
                 if let bytes = transfer.expectedBytes { expected.set(bytes) }
-                onProgress?(transfer.fraction ?? 0)
                 onTransfer?(transfer)
-            }
+            }, onMerging: onMerging)
         }, onTick: {
             let wrote = YTDLPProgress.allocatedBytes(in: workDir)
             guard wrote > 0 else { return }
@@ -620,14 +630,15 @@ public struct VideoDownloadPipeline: Sendable {
             let stream = YTDLPProgress.activeStream(in: workDir)
             if total > 0 {
                 let fraction = min(Double(wrote) / Double(total), 0.99)
-                onProgress?(fraction)
-                onTransfer?(TransferProgress(
+                let transfer = session.noteDisk(
                     fraction: fraction,
-                    sizeText: bytePair(wrote, total),
-                    expectedBytes: total,
-                    downloadedBytes: wrote,
-                    stream: stream
-                ))
+                    wrote: wrote,
+                    total: total,
+                    stream: stream,
+                    sizeText: bytePair(wrote, total)
+                )
+                onProgress?(transfer.fraction ?? fraction)
+                onTransfer?(transfer)
             } else if wrote > 1_000_000 {
                 onTransfer?(TransferProgress(downloadedBytes: wrote, stream: stream == .unknown ? .video : stream))
             }
@@ -768,5 +779,59 @@ public struct VideoDownloadPipeline: Sendable {
             return 90
         }
         return 12 * 60 * 60
+    }
+
+    private final class ProgressSessionBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var session = DownloadProgressSession()
+
+        func finish() -> TransferProgress? {
+            lock.lock()
+            defer { lock.unlock() }
+            return session.finishCurrentStream()
+        }
+
+        func noteDisk(
+            fraction: Double,
+            wrote: Int64,
+            total: Int64,
+            stream: TransferProgress.StreamKind,
+            sizeText: String
+        ) -> TransferProgress {
+            lock.lock()
+            defer { lock.unlock() }
+            return session.noteTransfer(TransferProgress(
+                fraction: fraction,
+                sizeText: sizeText,
+                expectedBytes: total,
+                downloadedBytes: wrote,
+                stream: stream == .unknown ? session.stream : stream
+            ))
+        }
+
+        func handle(_ line: String) -> (transfers: [TransferProgress], merging: Bool) {
+            lock.lock()
+            defer { lock.unlock() }
+            return session.events(for: line)
+        }
+    }
+
+    private static func emitProgress(
+        line: String,
+        session: ProgressSessionBox,
+        onProgress: (@Sendable (Double) -> Void)?,
+        onTransfer: (@Sendable (TransferProgress) -> Void)?,
+        onMerging: (@Sendable () -> Void)?
+    ) {
+        let result = session.handle(line)
+        for transfer in result.transfers {
+            if let fraction = transfer.fraction {
+                onProgress?(fraction)
+            }
+            onTransfer?(transfer)
+        }
+        if result.merging {
+            onMerging?()
+        }
     }
 }

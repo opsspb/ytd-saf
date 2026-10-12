@@ -233,12 +233,21 @@ class DownloadManager: ObservableObject {
             return (pipeline, info, formats, fallbackIds)
         }.value
 
-        updateTitle(id: item.id, title: result.1.title)
+        let info = result.1
+        let formats = result.2
+        updateTitle(id: item.id, title: info.title)
+        applyStage(
+            id: item.id,
+            status: .downloading,
+            stage: .formatChosen,
+            title: info.title,
+            formatSummary: formats.formatSummary
+        )
 
         try await downloadAndMerge(
             item: item,
-            info: result.1,
-            formats: result.2,
+            info: info,
+            formats: formats,
             pipeline: result.0,
             useCookies: useCookies,
             fallbackVideoFormatIds: result.3
@@ -386,6 +395,11 @@ class DownloadManager: ObservableObject {
                         DownloadProgressBridge.shared.update(id: itemID, fraction: progress)
                     }
                 },
+                onTransfer: { transfer in
+                    Task { @MainActor in
+                        DownloadProgressBridge.shared.transfer(id: itemID, transfer: transfer)
+                    }
+                },
                 onMerging: {
                     Task { @MainActor in
                         DownloadProgressBridge.shared.merging(id: itemID)
@@ -421,7 +435,12 @@ class DownloadManager: ObservableObject {
             } else if status == .merging {
                 self.applyStage(id: id, status: .merging, stage: .merging, progress: progress)
             } else {
-                self.updateProgress(id: id, progress: progress)
+                let current = self.queue.first(where: { $0.id == id })?.stage
+                if current == nil || current == .fetching || current == .formatChosen {
+                    self.applyStage(id: id, status: .downloading, stage: .downloadingVideo, progress: progress)
+                } else {
+                    self.updateProgress(id: id, progress: progress)
+                }
             }
         }
         DownloadProgressBridge.shared.metaHandler = { [weak self] id, choice in
@@ -434,14 +453,20 @@ class DownloadManager: ObservableObject {
             )
         }
         DownloadProgressBridge.shared.transferHandler = { [weak self] id, transfer in
+            guard let self else { return }
             let stage: DownloadStage
             switch transfer.stream {
             case .audio: stage = .downloadingAudio
             case .video: stage = .downloadingVideo
             case .unknown:
-                stage = transfer.fraction != nil ? .downloadingVideo : .downloadingVideo
+                if let current = self.queue.first(where: { $0.id == id })?.stage,
+                   current == .downloadingAudio || current == .downloadingVideo {
+                    stage = current
+                } else {
+                    stage = .downloadingVideo
+                }
             }
-            self?.applyStage(
+            self.applyStage(
                 id: id,
                 status: .downloading,
                 stage: stage,
@@ -470,12 +495,23 @@ class DownloadManager: ObservableObject {
     ) {
         guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
         var item = queue[index]
+        let stageChanging = stage != nil && stage != item.stage
         if let status {
-            item.applyStatus(status, progress: progress)
-        } else if let progress {
-            item.progress = min(max(progress, item.progress), 1)
+            item.applyStatus(status, progress: nil)
         }
-        if let stage { item.stage = stage }
+        if let stage {
+            item.stage = stage
+        }
+        if let progress {
+            let clamped = min(max(progress, 0), 1)
+            if stageChanging {
+                item.progress = clamped
+            } else {
+                item.progress = min(max(clamped, item.progress), 1)
+            }
+        } else if stageChanging, stage == .downloadingVideo || stage == .downloadingAudio {
+            item.progress = 0
+        }
         if let title, !title.isEmpty { item.title = title }
         if let formatSummary, !formatSummary.isEmpty { item.formatSummary = formatSummary }
         if let speedText { item.speedText = speedText }
@@ -533,7 +569,7 @@ final class DownloadProgressBridge {
     }
 
     func merging(id: UUID) {
-        handler?(id, .merging, 0.92, nil)
+        handler?(id, .merging, 1, nil)
     }
 
     func completed(id: UUID, path: String) {

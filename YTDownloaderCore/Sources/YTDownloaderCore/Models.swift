@@ -112,6 +112,29 @@ public struct SelectedFormats: Equatable, Sendable {
         self.video = video
         self.audio = audio
     }
+
+    public var formatSummary: String {
+        let resolution: String?
+        if let resolutionText = video.resolution, !resolutionText.isEmpty {
+            resolution = resolutionText
+        } else if let width = video.width, let height = video.height {
+            resolution = "\(width)x\(height)"
+        } else {
+            resolution = nil
+        }
+        return ParsedFormatChoice(
+            extractor: "youtube",
+            id: "",
+            title: "",
+            formatId: "\(video.formatId)+\(audio.formatId)",
+            resolution: resolution,
+            fps: video.fps,
+            vcodec: video.vcodec,
+            acodec: audio.acodec,
+            vbr: video.vbr,
+            abr: audio.abr
+        ).summary
+    }
 }
 
 public enum DownloadStatus: String, Codable {
