@@ -7,16 +7,23 @@
     const CARD_BUTTON_MARKER = 'data-ytd-card-button';
     const AVATAR_COLUMN_CLASS = 'ytd-card-avatar-column';
     const CHECK_INTERVAL = 1000;
+    // Matches /video-1_2, /video1_2, /@chan/video-1_2, ?z=video-1_2, clip…
     const ID_RE = /(?:^|[/?#=&])(video|clip)(-?\d+)_(\d+)/i;
 
     const CARD_SELECTORS = [
         '[data-testid="grid-item"]',
+        '[data-testid="video_card_preview"]',
+        '[data-testid="video_card_thumb"]',
         '[data-testid="video_card_info_layout_container"]',
-        '[data-testid="group-card"]'
+        '[data-testid="group-card"]',
+        '[data-testid="clipcard"]',
+        '[data-testid="video-playlist-card"]',
+        '[role="presentation"]'
     ];
 
     const AUTHOR_SELECTORS = [
         '[data-testid="video_card_author"]',
+        '[data-testid="video_card_owner"]',
         '[data-testid="clip-preview-owner"]',
         '[data-testid*="author"]',
         '[data-testid*="owner"]',
@@ -25,7 +32,8 @@
 
     const META_SELECTORS = [
         '[data-testid="video_card_info_layout_container"]',
-        '[data-testid="video_card_additional_info"]'
+        '[data-testid="video_card_additional_info"]',
+        '[data-testid="video_card_controls"]'
     ];
 
     const WATCH_ACTION_SELECTORS = [
@@ -156,7 +164,8 @@
             return false;
         }
         const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 1, height: 20 };
-        return rect.width > 8 && rect.height > 8;
+        // Watch-page controls can be in flex rows that report tiny width before paint.
+        return rect.height > 8 && (rect.width > 8 || rect.height >= 28);
     }
 
     function actionLabel(node) {
@@ -177,7 +186,6 @@
         }
         return null;
     }
-
     function rowFromControl(node) {
         let current = node;
         for (let i = 0; i < 7 && current; i++) {
@@ -192,7 +200,6 @@
         }
         return node.parentElement;
     }
-
     function findWatchActionsRow() {
         const control = findWatchActionControl();
         if (control) {
@@ -204,7 +211,6 @@
         if (title && title.parentElement) return title.parentElement;
         return null;
     }
-
     function insertButtonOnWatchPage() {
         const ref = getWatchRef();
         const existing = document.getElementById(BUTTON_ID);
@@ -220,7 +226,6 @@
         if (existing) existing.remove();
         actionsRow.appendChild(createWatchPageButton());
     }
-
     function cardAlreadyProcessed(card) {
         const state = card.getAttribute(CARD_BUTTON_MARKER);
         return state === 'added' || state === 'skipped';
@@ -250,6 +255,19 @@
         if (root.querySelectorAll) {
             root.querySelectorAll('a[href]').forEach(consider);
         }
+        // Title nodes sometimes expose href via data attributes after SPA hydration.
+        if (root.querySelectorAll) {
+            root.querySelectorAll('[href], [data-href], [data-url]').forEach((node) => {
+                const href = node.getAttribute('href')
+                    || node.getAttribute('data-href')
+                    || node.getAttribute('data-url')
+                    || '';
+                const ref = parseVKHref(href);
+                if (!ref || seen.has(node)) return;
+                seen.add(node);
+                found.push({ link: node, ref });
+            });
+        }
         return found;
     }
 
@@ -265,9 +283,18 @@
 
     function findCardRoot(link) {
         let node = link;
-        for (let i = 0; i < 14 && node && node !== document.body; i++) {
+        for (let i = 0; i < 16 && node && node !== document.body; i++) {
             const testid = node.getAttribute && node.getAttribute('data-testid');
-            if (testid && /grid-item|group-card|clip-preview|tile/i.test(testid)) {
+            if (testid && /grid-item|group-card|clip-preview|clipcard|video_card_preview|video_card_thumb|tile|video-playlist-card/i.test(testid)) {
+                // Prefer presentation wrapper that also contains the info layout.
+                const presentation = node.closest('[role="presentation"]');
+                if (presentation && presentation.querySelector('[data-testid="video_card_info_layout_container"]')) {
+                    return presentation;
+                }
+                return node;
+            }
+            if (node.getAttribute && node.getAttribute('role') === 'presentation'
+                && node.querySelector && node.querySelector('[data-testid="video_card_info_layout_container"]')) {
                 return node;
             }
             if (node.matches && node.matches('article, li, [role="listitem"]')) {
@@ -282,6 +309,22 @@
                 return node;
             }
             node = parent;
+        }
+        return node;
+    }
+
+    function elevateCardRoot(node) {
+        if (!node) return node;
+        if (node.getAttribute && node.getAttribute('data-testid') === 'video_card_info_layout_container') {
+            const presentation = node.closest('[role="presentation"]');
+            if (presentation) return presentation;
+            const grid = node.closest('[data-testid="grid-item"], [data-testid*="card"]');
+            if (grid && grid !== node) return grid;
+        }
+        if (node.getAttribute && /video_card_preview|video_card_thumb/i.test(node.getAttribute('data-testid') || '')) {
+            return node.closest('[role="presentation"]')
+                || node.closest('[data-testid="grid-item"]')
+                || node;
         }
         return node;
     }
@@ -359,13 +402,22 @@
         const seen = new Set();
         const cards = [];
         function add(card) {
-            if (!card || seen.has(card) || cardAlreadyProcessed(card)) return;
-            if (card === document.body || card === document.documentElement) return;
-            seen.add(card);
-            cards.push(card);
+            const root = elevateCardRoot(card);
+            if (!root || seen.has(root) || cardAlreadyProcessed(root)) return;
+            if (root === document.body || root === document.documentElement) return;
+            seen.add(root);
+            cards.push(root);
         }
         document.querySelectorAll(CARD_SELECTORS.join(',')).forEach((node) => {
-            add(node.closest('[data-testid="grid-item"]') || node.closest('[data-testid*="card"]') || node);
+            if (node.getAttribute && node.getAttribute('role') === 'presentation') {
+                if (!node.querySelector('[data-testid="video_card_info_layout_container"], a[href*="video"], a[href*="clip"]')) {
+                    return;
+                }
+            }
+            add(node.closest('[data-testid="grid-item"]')
+                || node.closest('[role="presentation"]')
+                || node.closest('[data-testid*="card"]')
+                || node);
         });
         document.querySelectorAll('a[href]').forEach((link) => {
             const href = link.getAttribute('href') || '';
