@@ -416,14 +416,20 @@ class DownloadManager: ObservableObject {
             )
         } catch {
             let downloadError = error as? DownloadError ?? .unknown(error.localizedDescription)
-            failWithCookieGuidance(
-                item: item,
-                original: downloadError,
+            YTDLPDiagnostics.writePostRetryErrorLog(error: downloadError)
+            switch CookieAccessDiagnoser.routingAfterCookieRetry(
+                error: downloadError,
                 hadExtensionCookies: hasExtensionCookies,
+                cookieMode: mode,
                 usedCookies: true,
                 stderr: downloadError.technicalDetail ?? downloadError.errorDescription,
                 netscapeText: netscape
-            )
+            ) {
+            case .cookieGuidance(let guidance):
+                applyCookieGuidanceFailure(item: item, guidance: guidance)
+            case .queueError(let message):
+                updateItemStatus(id: item.id, status: .failed, error: message)
+            }
         }
     }
 
@@ -435,26 +441,24 @@ class DownloadManager: ObservableObject {
         stderr: String? = nil,
         netscapeText: String? = nil
     ) {
-        let guidance = CookieAccessDiagnoser.guidance(
+        // Only cookie/sign-in failures should raise the cookie alert.
+        switch CookieAccessDiagnoser.routingAfterCookieRetry(
+            error: original,
             hadExtensionCookies: hadExtensionCookies,
             cookieMode: settings.cookieMode,
             usedCookies: usedCookies,
-            lastError: original,
             stderr: stderr,
             netscapeText: netscapeText
-        )
-        let status: String
-        if guidance.kind == .fullDiskAccessRequired {
-            status = guidance.statusText
-        } else if guidance.kind == .cookiesInsufficient {
-            // Prefer concrete yt-dlp ERROR / missing-cookie detail over the generic title.
-            status = guidance.statusText
-        } else if original.requiresCookies {
-            status = guidance.statusText
-        } else {
-            status = original.errorDescription ?? guidance.statusText
+        ) {
+        case .cookieGuidance(let guidance):
+            applyCookieGuidanceFailure(item: item, guidance: guidance)
+        case .queueError(let message):
+            updateItemStatus(id: item.id, status: .failed, error: message)
         }
-        updateItemStatus(id: item.id, status: .failed, error: status)
+    }
+
+    private func applyCookieGuidanceFailure(item: DownloadItem, guidance: CookieFailureGuidance) {
+        updateItemStatus(id: item.id, status: .failed, error: guidance.statusText)
         CookieAccessAlert.present(guidance)
     }
 

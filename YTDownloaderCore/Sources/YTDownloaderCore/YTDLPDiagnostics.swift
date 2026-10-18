@@ -83,10 +83,13 @@ public enum YTDLPDiagnostics {
         stderr: String,
         cookieFilePath: String?,
         netscapeText: String? = nil,
+        exitCode: Int32? = nil,
+        stdoutByteCount: Int? = nil,
         fileManager: FileManager = .default,
-        date: Date = Date()
+        date: Date = Date(),
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL? {
-        let dir = logsDirectory(fileManager: fileManager)
+        let dir = logsDirectory(homeDirectory: homeDirectory, fileManager: fileManager)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
@@ -99,6 +102,12 @@ public enum YTDLPDiagnostics {
             sections.append("cookieFile=\(cookieFilePath)")
         } else {
             sections.append("cookieFile=(none)")
+        }
+        if let exitCode {
+            sections.append("exitCode=\(exitCode)")
+        }
+        if let stdoutByteCount {
+            sections.append("stdoutBytes=\(stdoutByteCount)")
         }
 
         sections.append("")
@@ -129,7 +138,45 @@ public enum YTDLPDiagnostics {
             }
         }
 
-        let body = sections.joined(separator: "\n") + "\n"
+        return writeLogBody(sections.joined(separator: "\n") + "\n", to: fileURL)
+    }
+
+    /// Log the real error after a cookie retry (type + description). Never logs cookie values.
+    @discardableResult
+    public static func writePostRetryErrorLog(
+        error: Error,
+        fileManager: FileManager = .default,
+        date: Date = Date(),
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL? {
+        let dir = logsDirectory(homeDirectory: homeDirectory, fileManager: fileManager)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+        let fileURL = dir.appendingPathComponent("post-retry-\(formatter.string(from: date)).log")
+
+        let typeName = String(describing: type(of: error))
+        let description: String
+        if let downloadError = error as? DownloadError {
+            description = downloadError.errorDescription ?? downloadError.shortMessage
+        } else if let localized = error as? LocalizedError, let text = localized.errorDescription {
+            description = text
+        } else {
+            description = String(describing: error)
+        }
+
+        var sections: [String] = []
+        sections.append("=== post-cookie-retry error ===")
+        sections.append("type=\(typeName)")
+        if let downloadError = error as? DownloadError {
+            sections.append("downloadError=\(String(describing: downloadError))")
+            sections.append("requiresCookies=\(downloadError.requiresCookies)")
+        }
+        sections.append("description=\(description)")
+        return writeLogBody(sections.joined(separator: "\n") + "\n", to: fileURL)
+    }
+
+    private static func writeLogBody(_ body: String, to fileURL: URL) -> URL? {
         do {
             try Data(body.utf8).write(to: fileURL, options: .atomic)
             return fileURL

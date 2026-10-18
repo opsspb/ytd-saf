@@ -66,13 +66,13 @@ public struct FormatSelector {
     }
     
     private func selectBestAudio(from formats: [VideoFormat]) -> VideoFormat {
+        // Prefer tracks tagged as original (language_preference >= 0). Missing preference
+        // is not treated as original — otherwise HLS 233/234 (null preference) would
+        // exclude higher-bitrate https audio that only has preference -1.
         let originalLanguageFormats = formats.filter { format in
-            if let langPref = format.languagePreference {
-                return langPref >= 0
-            }
-            return true
+            (format.languagePreference ?? -1) >= 0
         }
-        
+
         let formatsToConsider = originalLanguageFormats.isEmpty ? formats : originalLanguageFormats
         
         let sorted = formatsToConsider.sorted { format1, format2 in

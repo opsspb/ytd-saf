@@ -52,7 +52,11 @@ public struct VideoDownloadPipeline: Sendable {
         if result.status != 0 {
             throw ErrorClassifier().classifyError(from: result.stderr.isEmpty ? result.stdout : result.stderr)
         }
-        return try JSONDecoder().decode(YTDLPInfo.self, from: Data(result.stdout.utf8))
+        do {
+            return try JSONDecoder().decode(YTDLPInfo.self, from: Data(result.stdout.utf8))
+        } catch {
+            throw DownloadError.fetchInfoFailed(Self.describeDecodeError(error))
+        }
     }
 
     public func downloadFormat(
@@ -776,6 +780,28 @@ public struct VideoDownloadPipeline: Sendable {
         return lower.contains("youtube.com") || lower.contains("youtu.be")
     }
 
+    static func describeDecodeError(_ error: Error) -> String {
+        if let decoding = error as? DecodingError {
+            switch decoding {
+            case .dataCorrupted(let context):
+                return "JSON decode failed: \(context.debugDescription) @ \(codingPath(context.codingPath))"
+            case .keyNotFound(let key, let context):
+                return "JSON decode failed: missing key \(key.stringValue) @ \(codingPath(context.codingPath))"
+            case .typeMismatch(let type, let context):
+                return "JSON decode failed: type mismatch \(type) @ \(codingPath(context.codingPath)) (\(context.debugDescription))"
+            case .valueNotFound(let type, let context):
+                return "JSON decode failed: value not found \(type) @ \(codingPath(context.codingPath))"
+            @unknown default:
+                return "JSON decode failed: \(decoding)"
+            }
+        }
+        return "JSON decode failed: \(error.localizedDescription)"
+    }
+
+    private static func codingPath(_ path: [CodingKey]) -> String {
+        path.map(\.stringValue).joined(separator: ".")
+    }
+
     private struct ProcessResult {
         let stdout: String
         let stderr: String
@@ -821,7 +847,9 @@ public struct VideoDownloadPipeline: Sendable {
                 arguments: arguments,
                 stderr: result.stderr,
                 cookieFilePath: cookiePath,
-                netscapeText: netscapeForLog
+                netscapeText: netscapeForLog,
+                exitCode: result.status,
+                stdoutByteCount: result.stdout.utf8.count
             )
         }
         if result.cancelled {

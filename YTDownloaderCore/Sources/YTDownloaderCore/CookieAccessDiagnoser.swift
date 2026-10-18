@@ -112,6 +112,14 @@ public struct CookieFailureGuidance: Equatable, Sendable {
     }
 }
 
+/// How to surface a failure that happened after a cookie retry.
+public enum CookieRetryFailureRouting: Equatable, Sendable {
+    /// Still a sign-in / cookie problem — show the cookie alert.
+    case cookieGuidance(CookieFailureGuidance)
+    /// Non-cookie error (decode, formats, ffmpeg, …) — queue only, no cookie alert.
+    case queueError(String)
+}
+
 public enum CookieAccessDiagnoser {
     public static let fullDiskAccessSettingsURL =
         "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
@@ -119,6 +127,31 @@ public enum CookieAccessDiagnoser {
     /// Opens Safari’s Extensions pane when supported.
     public static let safariExtensionSettingsURL =
         "x-apple.systempreferences:com.apple.Safari-Settings.extension"
+
+    /// Cookie alert only when the thrown error is actually cookie/sign-in related.
+    public static func routingAfterCookieRetry(
+        error: DownloadError,
+        hadExtensionCookies: Bool,
+        cookieMode: CookieMode,
+        usedCookies: Bool,
+        stderr: String? = nil,
+        netscapeText: String? = nil,
+        safariStoreReadable: Bool? = nil
+    ) -> CookieRetryFailureRouting {
+        guard error.requiresCookies else {
+            return .queueError(error.errorDescription ?? error.shortMessage)
+        }
+        let guidance = guidance(
+            hadExtensionCookies: hadExtensionCookies,
+            cookieMode: cookieMode,
+            usedCookies: usedCookies,
+            lastError: error,
+            stderr: stderr,
+            safariStoreReadable: safariStoreReadable,
+            netscapeText: netscapeText
+        )
+        return .cookieGuidance(guidance)
+    }
 
     /// Candidate Safari cookie DB paths (Containers store is TCC-protected).
     public static var safariCookieDatabasePaths: [URL] {

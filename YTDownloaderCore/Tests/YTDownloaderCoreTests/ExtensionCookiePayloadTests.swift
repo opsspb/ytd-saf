@@ -219,6 +219,51 @@ final class CookieAccessDiagnoserTests: XCTestCase {
         XCTAssertEqual(kind, .cookiesInsufficient)
     }
 
+    func testCookieRetryRoutingShowsGuidanceOnlyForCookieErrors() {
+        let cookieRoute = CookieAccessDiagnoser.routingAfterCookieRetry(
+            error: .ageRestricted,
+            hadExtensionCookies: true,
+            cookieMode: .none,
+            usedCookies: true,
+            netscapeText: ExtensionCookiePayload.netscapeText(from: [
+                BrowserCookie(name: "LOGIN_INFO", value: "x", domain: ".youtube.com"),
+                BrowserCookie(name: "__Secure-3PSID", value: "y", domain: ".youtube.com"),
+                BrowserCookie(name: "__Secure-1PSID", value: "z", domain: ".youtube.com"),
+                BrowserCookie(name: "SID", value: "1", domain: ".youtube.com"),
+                BrowserCookie(name: "SAPISID", value: "2", domain: ".youtube.com"),
+                BrowserCookie(name: "SSID", value: "3", domain: ".youtube.com"),
+                BrowserCookie(name: "HSID", value: "4", domain: ".youtube.com")
+            ])
+        )
+        if case .cookieGuidance(let guidance) = cookieRoute {
+            XCTAssertEqual(guidance.kind, .cookiesInsufficient)
+            XCTAssertEqual(guidance.alertTitle, "Sign-In Still Required")
+        } else {
+            XCTFail("expected cookie guidance for ageRestricted")
+        }
+
+        for error in [
+            DownloadError.noSuitableFormats,
+            .fetchInfoFailed("JSON decode failed: type mismatch"),
+            .mergeFailed("ffmpeg boom"),
+            .downloadFailed("aria2c failed"),
+            .unknown("DecodingError.typeMismatch")
+        ] {
+            let route = CookieAccessDiagnoser.routingAfterCookieRetry(
+                error: error,
+                hadExtensionCookies: true,
+                cookieMode: .none,
+                usedCookies: true
+            )
+            guard case .queueError(let message) = route else {
+                XCTFail("expected queueError for \(error), got \(route)")
+                continue
+            }
+            XCTAssertFalse(message.isEmpty)
+            XCTAssertFalse(message.contains("Sign-In Still Required"))
+        }
+    }
+
     func testInsufficientSurfacesMissingCookiesAndErrorLine() {
         let netscape = ExtensionCookiePayload.netscapeText(from: [
             BrowserCookie(name: "VISITOR_INFO1_LIVE", value: "x", domain: ".youtube.com")
@@ -324,6 +369,45 @@ final class YTDLPDiagnosticsTests: XCTestCase {
         let flags = YTDLPDiagnostics.cookieFlagLines(fromNetscape: netscape).joined(separator: "\n")
         XCTAssertFalse(flags.contains("secret-value"))
         XCTAssertTrue(flags.contains("LOGIN_INFO"))
+    }
+
+    func testWriteRunLogIncludesExitCodeAndStdoutBytes() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let url = YTDLPDiagnostics.writeRunLog(
+            executable: "/opt/homebrew/bin/yt-dlp",
+            arguments: ["-J", "--no-warnings", "https://youtube.com/watch?v=x"],
+            stderr: "",
+            cookieFilePath: "/tmp/cookies.txt",
+            netscapeText: nil,
+            exitCode: 0,
+            stdoutByteCount: 12345,
+            homeDirectory: home
+        )
+        let fileURL = try XCTUnwrap(url)
+        let body = try String(contentsOf: fileURL, encoding: .utf8)
+        XCTAssertTrue(body.contains("exitCode=0"))
+        XCTAssertTrue(body.contains("stdoutBytes=12345"))
+        XCTAssertTrue(body.contains("(empty)"))
+    }
+
+    func testWritePostRetryErrorLogIncludesTypeAndDescription() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let url = YTDLPDiagnostics.writePostRetryErrorLog(
+            error: DownloadError.noSuitableFormats,
+            homeDirectory: home
+        )
+        let fileURL = try XCTUnwrap(url)
+        let body = try String(contentsOf: fileURL, encoding: .utf8)
+        XCTAssertTrue(body.contains("type=DownloadError"))
+        XCTAssertTrue(body.contains("requiresCookies=false"))
+        XCTAssertTrue(body.contains("No suitable video formats found"))
+        XCTAssertTrue(fileURL.lastPathComponent.hasPrefix("post-retry-"))
     }
 
     func testVersionComparePrefersNewest() {

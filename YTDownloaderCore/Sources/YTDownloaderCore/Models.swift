@@ -58,25 +58,118 @@ public struct VideoFormat: Codable, Equatable, Sendable {
         self.languagePreference = languagePreference
         self.protocolName = protocolName
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatId = try container.decode(String.self, forKey: .formatId)
+        ext = try container.decode(String.self, forKey: .ext)
+        resolution = try container.decodeIfPresent(String.self, forKey: .resolution)
+        width = try Self.decodeFlexibleInt(container, forKey: .width)
+        height = try Self.decodeFlexibleInt(container, forKey: .height)
+        fps = try Self.decodeFlexibleDouble(container, forKey: .fps)
+        vcodec = try container.decodeIfPresent(String.self, forKey: .vcodec)
+        acodec = try container.decodeIfPresent(String.self, forKey: .acodec)
+        vbr = try Self.decodeFlexibleDouble(container, forKey: .vbr)
+        abr = try Self.decodeFlexibleDouble(container, forKey: .abr)
+        tbr = try Self.decodeFlexibleDouble(container, forKey: .tbr)
+        filesize = try Self.decodeFlexibleInt(container, forKey: .filesize)
+        filesizeApprox = try Self.decodeFlexibleInt(container, forKey: .filesizeApprox)
+        formatNote = try container.decodeIfPresent(String.self, forKey: .formatNote)
+        language = try container.decodeIfPresent(String.self, forKey: .language)
+        languagePreference = try Self.decodeFlexibleInt(container, forKey: .languagePreference)
+        protocolName = try container.decodeIfPresent(String.self, forKey: .protocolName)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatId, forKey: .formatId)
+        try container.encode(ext, forKey: .ext)
+        try container.encodeIfPresent(resolution, forKey: .resolution)
+        try container.encodeIfPresent(width, forKey: .width)
+        try container.encodeIfPresent(height, forKey: .height)
+        try container.encodeIfPresent(fps, forKey: .fps)
+        try container.encodeIfPresent(vcodec, forKey: .vcodec)
+        try container.encodeIfPresent(acodec, forKey: .acodec)
+        try container.encodeIfPresent(vbr, forKey: .vbr)
+        try container.encodeIfPresent(abr, forKey: .abr)
+        try container.encodeIfPresent(tbr, forKey: .tbr)
+        try container.encodeIfPresent(filesize, forKey: .filesize)
+        try container.encodeIfPresent(filesizeApprox, forKey: .filesizeApprox)
+        try container.encodeIfPresent(formatNote, forKey: .formatNote)
+        try container.encodeIfPresent(language, forKey: .language)
+        try container.encodeIfPresent(languagePreference, forKey: .languagePreference)
+        try container.encodeIfPresent(protocolName, forKey: .protocolName)
+    }
+
+    /// yt-dlp sometimes emits ints as floats (or vice versa); accept both.
+    private static func decodeFlexibleInt(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> Int? {
+        if container.contains(key), try container.decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+            return Int(value.rounded())
+        }
+        return nil
+    }
+
+    private static func decodeFlexibleDouble(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> Double? {
+        if container.contains(key), try container.decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) {
+            return Double(value)
+        }
+        return nil
+    }
+
+    /// Missing codec fields are treated like yt-dlp's `"none"`.
+    private var normalizedVcodec: String { vcodec ?? "none" }
+    private var normalizedAcodec: String { acodec ?? "none" }
+
+    /// True when resolution/note mark this as an audio-only stream (HLS 233/234 omit `acodec`).
+    public var isAudioOnlyByMeta: Bool {
+        let resolutionText = (resolution ?? "").lowercased()
+        if resolutionText == "audio only" || resolutionText.hasPrefix("audio") {
+            return true
+        }
+        let note = (formatNote ?? "").lowercased()
+        return note == "audio only" || note.hasPrefix("audio only")
+    }
     
     public var isVideoOnly: Bool {
-        guard let acodec = acodec else { return false }
-        return acodec == "none" || acodec.isEmpty
+        let a = normalizedAcodec
+        return a == "none" || a.isEmpty
     }
     
     public var isAudioOnly: Bool {
-        guard let vcodec = vcodec else { return false }
-        return vcodec == "none" || vcodec.isEmpty
+        let v = normalizedVcodec
+        return v == "none" || v.isEmpty
     }
     
     public var hasVideo: Bool {
-        guard let vcodec = vcodec else { return false }
-        return vcodec != "none" && !vcodec.isEmpty
+        let v = normalizedVcodec
+        return v != "none" && !v.isEmpty
     }
     
     public var hasAudio: Bool {
-        guard let acodec = acodec else { return false }
-        return acodec != "none" && !acodec.isEmpty
+        let a = normalizedAcodec
+        if a != "none" && !a.isEmpty {
+            return true
+        }
+        // Age-restricted / web_safari HLS audio rows often have vcodec=none and null acodec.
+        return isAudioOnly && isAudioOnlyByMeta
     }
 }
 
