@@ -459,6 +459,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     case ageRestricted
     case membersOnly
     case captchaRequired
+    case fullDiskAccessRequired
     case forbidden
     case tooManyRequests
     case networkError(String)
@@ -491,6 +492,8 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Members-only video (cookies required)"
         case .captchaRequired:
             return "CAPTCHA required (cookies needed)"
+        case .fullDiskAccessRequired:
+            return "Full Disk Access required for Safari cookies"
         case .forbidden:
             return "Access forbidden (403)"
         case .tooManyRequests:
@@ -512,6 +515,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
         switch self {
         case .ytdlpNotFound, .ffmpegNotFound, .invalidURL, .noSuitableFormats,
              .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired,
+             .fullDiskAccessRequired,
              .forbidden, .tooManyRequests, .unsupportedMedia, .cancelled:
             return shortMessage
         case .fetchInfoFailed(let msg):
@@ -547,6 +551,7 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             "Age-restricted video (cookies required)",
             "Members-only video (cookies required)",
             "CAPTCHA required (cookies needed)",
+            "Full Disk Access required for Safari cookies",
             "Access forbidden (403)",
             "Too many requests (429)",
             "Network error",
@@ -606,7 +611,8 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     
     public var requiresCookies: Bool {
         switch self {
-        case .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired:
+        case .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired,
+             .fullDiskAccessRequired:
             return true
         default:
             return false

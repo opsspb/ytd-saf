@@ -728,13 +728,14 @@ public struct VideoDownloadPipeline: Sendable {
 
     private func cookieArguments(useCookies: Bool) -> [String] {
         guard useCookies else { return [] }
+        // Per-download Netscape file (extension cookies) wins over Safari store.
+        if let cookieFilePath, !cookieFilePath.isEmpty {
+            return ["--cookies", cookieFilePath]
+        }
         switch cookieMode {
         case .safari:
             return ["--cookies-from-browser", "safari"]
         case .file:
-            if let cookieFilePath {
-                return ["--cookies", cookieFilePath]
-            }
             return []
         case .none:
             return []

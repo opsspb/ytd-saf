@@ -15,6 +15,8 @@ class DownloadManager: ObservableObject {
     private var retryStates: [UUID: RetryState] = [:]
     private var lastProgressSave = Date.distantPast
     private var cancellations: [UUID: ProcessCancellation] = [:]
+    /// In-memory only — never persist or log cookie values.
+    private var extensionCookiePayloads: [UUID: String] = [:]
     private let supportDirectory: URL
     private let queueFile: URL
     private let settingsFile: URL
@@ -41,7 +43,7 @@ class DownloadManager: ObservableObject {
         loadQueue()
     }
 
-    func addDownload(videoId: String, url: String) {
+    func addDownload(videoId: String, url: String, cookiesPayload: String? = nil) {
         if Self.fixtureVideoIDs.contains(videoId) { return }
         var resolvedId = videoId
         var resolvedURL = url
@@ -65,7 +67,11 @@ class DownloadManager: ObservableObject {
             }
         }
 
-        if queue.contains(where: { $0.videoId == resolvedId && isActive($0.status) }) {
+        if let existing = queue.first(where: { $0.videoId == resolvedId && isActive($0.status) }) {
+            // Attach cookies to an in-flight item if a later handoff includes them.
+            if let cookiesPayload, !cookiesPayload.isEmpty {
+                extensionCookiePayloads[existing.id] = cookiesPayload
+            }
             return
         }
 
@@ -76,6 +82,9 @@ class DownloadManager: ObservableObject {
             item.error = nil
             item.completedAt = nil
             queue[index] = item
+            if let cookiesPayload, !cookiesPayload.isEmpty {
+                extensionCookiePayloads[item.id] = cookiesPayload
+            }
             saveQueue()
             processQueue()
             NotificationCenter.default.post(name: .ytdDownloadDidEnqueue, object: nil)
@@ -88,6 +97,9 @@ class DownloadManager: ObservableObject {
             title: nil,
             stage: .fetching
         )
+        if let cookiesPayload, !cookiesPayload.isEmpty {
+            extensionCookiePayloads[item.id] = cookiesPayload
+        }
         queue.append(item)
         saveQueue()
         processQueue()
@@ -111,6 +123,7 @@ class DownloadManager: ObservableObject {
         if status == .completed || status == .failed || status == .cancelled {
             activeDownloads = max(0, activeDownloads - 1)
             cancellations[id] = nil
+            extensionCookiePayloads[id] = nil
             processQueue()
         }
     }
@@ -143,6 +156,7 @@ class DownloadManager: ObservableObject {
             activeDownloads = max(0, activeDownloads - 1)
         }
         cancellations[id] = nil
+        extensionCookiePayloads[id] = nil
         saveQueue()
         processQueue()
     }
@@ -153,6 +167,7 @@ class DownloadManager: ObservableObject {
             cancellations[id]?.cancel()
         }
         cancellations.removeAll()
+        extensionCookiePayloads.removeAll()
         let kept = queue.filter { $0.status == .completed }
         queue = kept
         if let selectedItemID, kept.contains(where: { $0.id == selectedItemID }) == false {
@@ -204,17 +219,41 @@ class DownloadManager: ObservableObject {
         }
     }
 
-    private func runDownload(_ item: DownloadItem, useCookies: Bool, cancellation: ProcessCancellation? = nil) async throws {
+    private func runDownload(
+        _ item: DownloadItem,
+        useCookies: Bool,
+        cookieMode: CookieMode? = nil,
+        cookieFilePath: String? = nil,
+        cancellation: ProcessCancellation? = nil
+    ) async throws {
+        let mode = cookieMode ?? settings.cookieMode
+        let path = cookieFilePath ?? settings.cookieFilePath
         let adapter = SiteAdapterRegistry.adapter(for: item.url)
         if adapter.formatSpec != nil {
-            try await downloadBySort(item, adapter: adapter, useCookies: useCookies, cancellation: cancellation)
+            try await downloadBySort(
+                item,
+                adapter: adapter,
+                useCookies: useCookies,
+                cookieMode: mode,
+                cookieFilePath: path,
+                cancellation: cancellation
+            )
             return
         }
-        try await downloadYouTube(item, useCookies: useCookies)
+        try await downloadYouTube(
+            item,
+            useCookies: useCookies,
+            cookieMode: mode,
+            cookieFilePath: path
+        )
     }
 
-    private func downloadYouTube(_ item: DownloadItem, useCookies: Bool) async throws {
-        let settings = self.settings
+    private func downloadYouTube(
+        _ item: DownloadItem,
+        useCookies: Bool,
+        cookieMode: CookieMode,
+        cookieFilePath: String?
+    ) async throws {
         let result = try await Task.detached(priority: .userInitiated) { [formatSelector] in
             guard let paths = BinaryBootstrap().locateExisting() else {
                 throw DownloadError.ytdlpNotFound
@@ -222,8 +261,8 @@ class DownloadManager: ObservableObject {
             let pipeline = VideoDownloadPipeline(
                 ytdlpPath: paths.ytdlp,
                 ffmpegPath: paths.ffmpeg,
-                cookieMode: settings.cookieMode,
-                cookieFilePath: settings.cookieFilePath
+                cookieMode: cookieMode,
+                cookieFilePath: cookieFilePath
             )
             let info = try pipeline.fetchInfo(url: item.url, useCookies: useCookies)
             let formats = try formatSelector.selectBestFormats(from: info)
@@ -255,8 +294,14 @@ class DownloadManager: ObservableObject {
     }
 
     /// Re-extracts on every attempt: VK CDN URLs are IP-bound and expire.
-    private func downloadBySort(_ item: DownloadItem, adapter: SiteAdapterInfo, useCookies: Bool, cancellation: ProcessCancellation?) async throws {
-        let settings = self.settings
+    private func downloadBySort(
+        _ item: DownloadItem,
+        adapter: SiteAdapterInfo,
+        useCookies: Bool,
+        cookieMode: CookieMode,
+        cookieFilePath: String?,
+        cancellation: ProcessCancellation?
+    ) async throws {
         let downloadDir = (settings.downloadDirectory as NSString).expandingTildeInPath
         let itemID = item.id
         let url = item.url
@@ -268,8 +313,8 @@ class DownloadManager: ObservableObject {
             let pipeline = VideoDownloadPipeline(
                 ytdlpPath: paths.ytdlp,
                 ffmpegPath: paths.ffmpeg,
-                cookieMode: settings.cookieMode,
-                cookieFilePath: settings.cookieFilePath,
+                cookieMode: cookieMode,
+                cookieFilePath: cookieFilePath,
                 aria2cPath: paths.aria2c
             )
             return try pipeline.downloadBySort(
@@ -311,19 +356,98 @@ class DownloadManager: ObservableObject {
     }
 
     private func retryWithCookies(item: DownloadItem, error: DownloadError) async {
-        guard settings.cookieMode != .none else {
-            updateItemStatus(id: item.id, status: .failed, error: error.errorDescription)
+        let payload = extensionCookiePayloads[item.id]
+        let netscape = payload.flatMap { ExtensionCookiePayload.netscapeText(fromURLPayload: $0) }
+        let hasExtensionCookies = netscape != nil
+        let canUseSettingsCookies = settings.cookieMode != .none
+            && !(settings.cookieMode == .file && (settings.cookieFilePath?.isEmpty ?? true))
+
+        guard hasExtensionCookies || canUseSettingsCookies else {
+            failWithCookieGuidance(
+                item: item,
+                original: error,
+                hadExtensionCookies: false,
+                usedCookies: false
+            )
+            return
+        }
+
+        var tempCookieURL: URL?
+        defer {
+            if let tempCookieURL {
+                try? FileManager.default.removeItem(at: tempCookieURL)
+            }
+        }
+
+        var mode = settings.cookieMode
+        var path = settings.cookieFilePath
+        if let netscape {
+            do {
+                let fileURL = try ExtensionCookiePayload.writeTempCookieFile(netscapeText: netscape)
+                tempCookieURL = fileURL
+                mode = .file
+                path = fileURL.path
+            } catch {
+                // Fall through to Safari / settings file if temp write fails.
+            }
+        }
+
+        // Prefer extension file; only then --cookies-from-browser safari / settings file.
+        if tempCookieURL == nil, !canUseSettingsCookies {
+            failWithCookieGuidance(
+                item: item,
+                original: error,
+                hadExtensionCookies: false,
+                usedCookies: false
+            )
             return
         }
 
         do {
-            // Copy the token first: Swift 5.9 treats a dictionary subscript as inout.
             let cancellation = cancellations[item.id]
-            try await runDownload(item, useCookies: true, cancellation: cancellation)
+            try await runDownload(
+                item,
+                useCookies: true,
+                cookieMode: mode,
+                cookieFilePath: path,
+                cancellation: cancellation
+            )
         } catch {
             let downloadError = error as? DownloadError ?? .unknown(error.localizedDescription)
-            updateItemStatus(id: item.id, status: .failed, error: downloadError.errorDescription)
+            failWithCookieGuidance(
+                item: item,
+                original: downloadError,
+                hadExtensionCookies: hasExtensionCookies,
+                usedCookies: true,
+                stderr: downloadError.errorDescription
+            )
         }
+    }
+
+    private func failWithCookieGuidance(
+        item: DownloadItem,
+        original: DownloadError,
+        hadExtensionCookies: Bool,
+        usedCookies: Bool,
+        stderr: String? = nil
+    ) {
+        let guidance = CookieAccessDiagnoser.guidance(
+            hadExtensionCookies: hadExtensionCookies,
+            cookieMode: settings.cookieMode,
+            usedCookies: usedCookies,
+            lastError: original,
+            stderr: stderr
+        )
+        let status: String
+        if guidance.kind == .fullDiskAccessRequired {
+            status = guidance.statusText
+        } else if original.requiresCookies {
+            status = guidance.statusText
+        } else {
+            status = original.errorDescription ?? guidance.statusText
+        }
+        updateItemStatus(id: item.id, status: .failed, error: status)
+        CookieAccessAlert.present(guidance)
     }
 
     private func retryIfPossible(item: DownloadItem, error: DownloadError) async {

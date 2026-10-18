@@ -18,16 +18,17 @@ final class AppURLTests: XCTestCase {
         let parsed = AppURL.parse(
             "ytdownloader://download?videoId=dQw4w9WgXcQ&url=https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         )
-        guard case .download(let videoId, let url) = parsed else {
+        guard case .download(let videoId, let url, let cookies) = parsed else {
             return XCTFail("expected download command")
         }
         XCTAssertEqual(videoId, "dQw4w9WgXcQ")
         XCTAssertEqual(url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        XCTAssertNil(cookies)
     }
 
     func testBareSchemeWithDownloadQuery() {
         let parsed = AppURL.parse("ytdownloader://?videoId=abc&url=https://youtu.be/abc")
-        guard case .download(let videoId, let url) = parsed else {
+        guard case .download(let videoId, let url, _) = parsed else {
             return XCTFail("expected download command")
         }
         XCTAssertEqual(videoId, "abc")
@@ -36,10 +37,30 @@ final class AppURLTests: XCTestCase {
 
     func testPathDownload() {
         let parsed = AppURL.parse("ytdownloader:///download?videoId=vk1&url=https://vkvideo.ru/video-1_2")
-        guard case .download(let videoId, _) = parsed else {
+        guard case .download(let videoId, _, _) = parsed else {
             return XCTFail("expected download command")
         }
         XCTAssertEqual(videoId, "vk1")
+    }
+
+    func testDownloadWithCookiesPayload() {
+        let cookies = ExtensionCookiePayload.encodeBase64URL("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc")
+        let built = AppURL.downloadURL(
+            videoId: "vid1",
+            url: "https://www.youtube.com/watch?v=vid1",
+            cookies: cookies
+        )
+        XCTAssertNotNil(built)
+        let parsed = AppURL.parse(built!)
+        guard case .download(let videoId, let url, let payload) = parsed else {
+            return XCTFail("expected download with cookies")
+        }
+        XCTAssertEqual(videoId, "vid1")
+        XCTAssertEqual(url, "https://www.youtube.com/watch?v=vid1")
+        XCTAssertEqual(payload, cookies)
+        let netscape = ExtensionCookiePayload.netscapeText(fromURLPayload: payload!)
+        XCTAssertTrue(netscape?.contains("SID") == true)
+        XCTAssertTrue(netscape?.contains("abc") == true)
     }
 
     func testRejectsUnknownHostAndMissingQuery() {

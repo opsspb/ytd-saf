@@ -6,6 +6,11 @@ public struct ErrorClassifier {
     /// Classify error from yt-dlp output
     public func classifyError(from output: String) -> DownloadError {
         let lowercased = output.lowercased()
+
+        // Cookie DB / TCC failures before treating as a generic unknown.
+        if CookieAccessDiagnoser.looksLikeCookieStorePermissionError(output) {
+            return .fullDiskAccessRequired
+        }
         
         if containsAny(lowercased, [
             "sign in", "login", "log in", "registered users",

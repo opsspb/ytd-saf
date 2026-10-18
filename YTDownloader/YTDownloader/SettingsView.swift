@@ -23,6 +23,10 @@ struct SettingsView: View {
             }
             
             Section("Cookies") {
+                Text("Primary: the Safari extension sends cookies with each download (Safari prompts for cookie permission). Fallback modes below use the app process.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 Picker("Cookie Mode", selection: $cookieMode) {
                     Text("None").tag(CookieMode.none)
                     Text("Safari (requires Full Disk Access)").tag(CookieMode.safari)
@@ -32,13 +36,13 @@ struct SettingsView: View {
                 
                 if cookieMode == .safari {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Safari cookies require Full Disk Access:")
+                        Text("Fallback only — Safari’s cookie DB needs Full Disk Access:")
                             .font(.caption)
                         Text("1. Open System Settings → Privacy & Security")
                             .font(.caption)
                         Text("2. Go to Full Disk Access")
                             .font(.caption)
-                        Text("3. Enable YTDownloader")
+                        Text("3. Enable YTDownloader, then restart the app")
                             .font(.caption)
                         
                         Button("Open Privacy Settings") {

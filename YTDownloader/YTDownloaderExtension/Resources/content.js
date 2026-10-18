@@ -164,9 +164,12 @@
         button.disabled = false;
     }
 
-    function openHostApp(videoId, url) {
+    function openHostApp(videoId, url, cookiesPayload) {
         if (global.__YTD_TEST__) return;
         const params = new URLSearchParams({ videoId, url });
+        if (cookiesPayload) {
+            params.set('cookies', cookiesPayload);
+        }
         const scheme = `ytdownloader://download?${params.toString()}`;
         const iframe = document.createElement('iframe');
         iframe.setAttribute('aria-hidden', 'true');
@@ -179,11 +182,11 @@
     async function queueDownload(button, videoId, url) {
         lastQueued = { videoId, url, at: Date.now() };
         setButtonState(button, 'working');
-        openHostApp(videoId, url);
 
         try {
             const runtime = (global.browser && global.browser.runtime) || (global.chrome && global.chrome.runtime);
             if (!runtime || !runtime.sendMessage) {
+                openHostApp(videoId, url);
                 setButtonState(button, 'queued');
                 return;
             }
@@ -194,6 +197,9 @@
                 url: url
             });
 
+            // Backup iframe after background collected cookies (avoid racing a cookieless enqueue).
+            openHostApp(videoId, url, response && response.cookies);
+
             if (response && response.success) {
                 setButtonState(button, 'queued');
             } else {
@@ -201,7 +207,7 @@
             }
         } catch (error) {
             console.error('YTDownloader error:', error);
-            // Scheme hand-off already ran; still mark queued.
+            openHostApp(videoId, url);
             setButtonState(button, 'queued');
         }
     }

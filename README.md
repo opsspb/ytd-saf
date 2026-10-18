@@ -9,7 +9,7 @@ A native macOS app with a Safari Web Extension that downloads YouTube videos in 
 - **Original-language audio**: `language_preference >= 0`, then highest audio bitrate
 - **Merged MKV** with `ffmpeg -c copy` (no transcoding)
 - **Persistent queue** in the app (Safari can close)
-- **Cookies**: none, Safari (`--cookies-from-browser safari`, needs Full Disk Access), or `cookies.txt`
+- **Cookies**: Safari extension sends site cookies with each download (primary, no Full Disk Access); fallback: Safari store (`--cookies-from-browser`, needs FDA) or `cookies.txt`
 - **Retries**: random(5…30) + 60×(n−1) seconds, max 10, for 403/429/network
 - **Self-installs** official yt-dlp + ffmpeg/ffprobe into `~/Library/Application Support/YTDownloader/bin`
 
@@ -23,9 +23,9 @@ A native macOS app with a Safari Web Extension that downloads YouTube videos in 
 ## Build (free personal team)
 
 1. `open YTDownloader.xcodeproj`
-2. Select the **YTDownloader** target → **Signing & Capabilities** → **Team** → your personal Apple ID
-3. Repeat for **YTDownloaderExtension** (same team)
-4. Scheme **YTDownloader** → **Product → Run** (⌘R)
+2. Both targets already use **Team** `4DVJSNGT52` (Pavel’s Personal Team) and **Automatic** signing so TCC grants survive rebuilds
+3. Scheme **YTDownloader** → **Product → Run** (⌘R)
+4. Headless/CI builds without an identity: pass `CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=`
 
 Icons: `./generate_icons.sh` (or `generate_icons_python.py`) if `Assets.xcassets` is missing sizes.
 
@@ -47,9 +47,9 @@ The app must have been Run at least once so Safari can see the embedded `.appex`
 App Groups are not available on a free personal team, so the extension does **not** share a container with the app.
 
 1. Content script sends `{ action: "download", videoId, url }`
-2. Background script (and the page) open `ytdownloader://download?videoId=…&url=…`
+2. Background collects cookies via `browser.cookies` (Safari permission prompt) and opens `ytdownloader://download?videoId=…&url=…&cookies=…` (base64url Netscape/JSON)
 3. Launch Services starts the app if it is not running
-4. `AppDelegate` / `onOpenURL` enqueue the item; the queue keeps going if you change Safari tabs
+4. `AppDelegate` / `onOpenURL` enqueue the item; on sign-in errors the app writes a private temp `cookies.txt` and retries with `--cookies` before falling back to Safari’s cookie store
 
 A sandboxed `NSWorkspace.open` from the appex is unreliable (a sandboxed helper aborts). Opening the custom scheme from JS is the supported path. The native `SafariWebExtensionHandler` still tries `NSWorkspace` as a backup.
 
@@ -58,10 +58,10 @@ A sandboxed `NSWorkspace.open` from the appex is unreliable (a sandboxed helper 
 **YTDownloader → Settings** or the gear icon:
 
 - Download folder (default `~/Downloads`)
-- Cookie mode: None / Safari / cookies.txt
+- Cookie mode fallback: None / Safari / cookies.txt
 - Concurrent downloads (1–5)
 
-Safari cookies: **System Settings → Privacy & Security → Full Disk Access** → add YTDownloader, then restart the app.
+Prefer the extension cookie prompt. Safari-store fallback: **System Settings → Privacy & Security → Full Disk Access** → add YTDownloader, then restart the app.
 
 ## Tests
 

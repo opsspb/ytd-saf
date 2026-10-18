@@ -2,7 +2,8 @@ import Foundation
 
 /// Commands accepted by the `ytdownloader://` URL scheme.
 public enum AppURLCommand: Equatable, Sendable {
-    case download(videoId: String, url: String)
+    /// `cookies` is base64url of Netscape cookies.txt or JSON cookie array from the extension.
+    case download(videoId: String, url: String, cookies: String? = nil)
     case showQueue
     case showSettings
 }
@@ -39,13 +40,31 @@ public enum AppURL {
         }
     }
 
+    /// Build a compact download URL (optional cookies payload already base64url-encoded).
+    public static func downloadURL(videoId: String, url: String, cookies: String? = nil) -> URL? {
+        var components = URLComponents()
+        components.scheme = "ytdownloader"
+        components.host = "download"
+        var items = [
+            URLQueryItem(name: "videoId", value: videoId),
+            URLQueryItem(name: "url", value: url)
+        ]
+        if let cookies, !cookies.isEmpty {
+            items.append(URLQueryItem(name: "cookies", value: cookies))
+        }
+        components.queryItems = items
+        return components.url
+    }
+
     private static func parseDownload(_ url: URL) -> AppURLCommand? {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let videoId = items.first(where: { $0.name == "videoId" })?.value
         let videoURL = items.first(where: { $0.name == "url" })?.value
+        let cookies = items.first(where: { $0.name == "cookies" })?.value
         guard let videoId, let videoURL, !videoId.isEmpty, !videoURL.isEmpty else {
             return nil
         }
-        return .download(videoId: videoId, url: videoURL)
+        let payload = (cookies?.isEmpty == false) ? cookies : nil
+        return .download(videoId: videoId, url: videoURL, cookies: payload)
     }
 }

@@ -29,14 +29,16 @@ jobs:
     
     - name: Build app
       run: |
+        # No signing identity on CI / agent accounts: override team signing from the project.
         xcodebuild clean build \
           -project YTDownloader.xcodeproj \
           -scheme YTDownloader \
           -configuration Debug \
           -destination 'platform=macOS' \
-          CODE_SIGN_IDENTITY="" \
+          CODE_SIGN_IDENTITY=- \
           CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_ALLOWED=NO \
+          DEVELOPMENT_TEAM=
 
   test-core:
     runs-on: macos-14

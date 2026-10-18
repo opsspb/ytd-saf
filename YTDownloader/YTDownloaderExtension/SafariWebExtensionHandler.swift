@@ -20,10 +20,12 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
                 return
             }
 
+            let cookies = message?["cookies"] as? String
+
             // Best-effort backup. The content/background scripts also open
             // ytdownloader:// because a sandboxed appex may not be allowed
             // to launch the host app via NSWorkspace.
-            openHostApp(videoId: videoId, url: url)
+            openHostApp(videoId: videoId, url: url, cookies: cookies)
 
             let response = NSExtensionItem()
             response.userInfo = [
@@ -38,14 +40,18 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
         }
     }
 
-    private func openHostApp(videoId: String, url: String) {
+    private func openHostApp(videoId: String, url: String, cookies: String?) {
         var components = URLComponents()
         components.scheme = "ytdownloader"
         components.host = "download"
-        components.queryItems = [
+        var items = [
             URLQueryItem(name: "videoId", value: videoId),
             URLQueryItem(name: "url", value: url)
         ]
+        if let cookies, !cookies.isEmpty {
+            items.append(URLQueryItem(name: "cookies", value: cookies))
+        }
+        components.queryItems = items
         guard let customURL = components.url else {
             os_log("YTDownloader: failed to build custom URL")
             return

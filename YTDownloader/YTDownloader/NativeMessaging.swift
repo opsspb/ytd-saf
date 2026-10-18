@@ -5,7 +5,7 @@ import YTDownloaderCore
 class NativeMessaging: ObservableObject {
     static let shared = NativeMessaging()
 
-    private var pending: [(videoId: String, url: String)] = []
+    private var pending: [(videoId: String, url: String, cookies: String?)] = []
     private var manager: DownloadManager?
 
     private init() {
@@ -33,8 +33,8 @@ class NativeMessaging: ObservableObject {
             Task { @MainActor in
                 AppWindowController.shared.showSettings()
             }
-        case .download(let videoId, let url):
-            enqueue(videoId: videoId, url: url)
+        case .download(let videoId, let url, let cookies):
+            enqueue(videoId: videoId, url: url, cookies: cookies)
         }
     }
 
@@ -46,13 +46,13 @@ class NativeMessaging: ObservableObject {
         handle(url: url)
     }
 
-    private func enqueue(videoId: String, url: String) {
+    private func enqueue(videoId: String, url: String, cookies: String?) {
         if let manager {
             Task { @MainActor in
-                manager.addDownload(videoId: videoId, url: url)
+                manager.addDownload(videoId: videoId, url: url, cookiesPayload: cookies)
             }
         } else {
-            pending.append((videoId, url))
+            pending.append((videoId, url, cookies))
         }
     }
 
@@ -62,7 +62,7 @@ class NativeMessaging: ObservableObject {
         pending.removeAll()
         Task { @MainActor in
             for item in items {
-                manager.addDownload(videoId: item.videoId, url: item.url)
+                manager.addDownload(videoId: item.videoId, url: item.url, cookiesPayload: item.cookies)
             }
         }
     }

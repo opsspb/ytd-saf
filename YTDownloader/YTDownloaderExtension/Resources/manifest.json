@@ -5,10 +5,12 @@
   "description": "Download YouTube and VK Video in the best quality with yt-dlp",
   "permissions": [
     "nativeMessaging",
-    "storage"
+    "storage",
+    "cookies"
   ],
   "host_permissions": [
     "*://*.youtube.com/*",
+    "*://*.google.com/*",
     "*://*.vkvideo.ru/*",
     "*://vkvideo.ru/*",
     "*://*.vk.com/*",
