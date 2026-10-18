@@ -47,5 +47,7 @@
 	<string>Copyright © 2026 Pavel Osmolovskii</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>YTDownloaderAppGroupIdentifier</key>
+	<string>$(TeamIdentifierPrefix)com.ytdownloader.shared</string>
 </dict>
 </plist>

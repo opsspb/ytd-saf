@@ -46,7 +46,7 @@ The app must have been Run at least once so Safari can see the embedded `.appex`
 
 1. YD click handler calls `browser.permissions.request({ origins: […] })` **inside the user gesture** so Safari shows its standard host-permission prompt (YouTube / Google / VK)
 2. Content script messages the background worker, which collects cookies via `browser.cookies` (including all cookie stores)
-3. Background `sendNativeMessage`s the payload to `SafariWebExtensionHandler`, which writes Netscape cookies into the App Group `group.com.ytdownloader.shared` and returns a short `cookieRef`
+3. Background `sendNativeMessage`s the payload to `SafariWebExtensionHandler`, which writes Netscape cookies into the macOS team-prefixed App Group (`$(TeamIdentifierPrefix)com.ytdownloader.shared`, e.g. `4DVJSNGT52.com.ytdownloader.shared`) and returns a short `cookieRef`
 4. A compact `ytdownloader://download?videoId=…&url=…&cookieRef=…` launches the host app (legacy `cookies=` base64url remains as fallback when the App Group is unavailable, e.g. unsigned CI)
 5. On sign-in errors the app reads the App Group file (or URL payload), writes a private temp `cookies.txt`, and retries with `--cookies`
 

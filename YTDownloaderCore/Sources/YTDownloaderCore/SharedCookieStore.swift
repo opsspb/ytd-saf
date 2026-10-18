@@ -2,12 +2,46 @@ import Foundation
 
 /// App Group handoff for Netscape cookies written by the Safari appex and read by the host app.
 public enum SharedCookieStore {
-    public static let appGroupID = "group.com.ytdownloader.shared"
+    /// Info.plist key (app + extension) set to `$(TeamIdentifierPrefix)com.ytdownloader.shared`.
+    public static let appGroupIDInfoPlistKey = "YTDownloaderAppGroupIdentifier"
+    /// Suffix after the team prefix (macOS App Group form, not `group.`).
+    public static let appGroupIDSuffix = "com.ytdownloader.shared"
     public static let directoryName = "ExtensionCookies"
 
+    /// Resolved App Group id; prefer the Info.plist value so app and extension always agree.
+    public static var appGroupID: String {
+        resolveAppGroupID()
+    }
+
+    /// Resolve the group id from an Info.plist (or injected dictionary for tests).
+    /// Unexpanded `$(…)` build settings and empty values fall back to `appGroupIDSuffix`
+    /// (unsigned / SPM), where the real container is typically unavailable.
+    public static func resolveAppGroupID(
+        bundle: Bundle = .main,
+        infoDictionary: [String: Any]? = nil
+    ) -> String {
+        let raw: String?
+        if let infoDictionary {
+            raw = infoDictionary[appGroupIDInfoPlistKey] as? String
+        } else {
+            raw = bundle.object(forInfoDictionaryKey: appGroupIDInfoPlistKey) as? String
+        }
+        if let raw {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, !trimmed.contains("$(") {
+                return trimmed
+            }
+        }
+        return appGroupIDSuffix
+    }
+
     /// Security-scoped App Group container, or `nil` when unsigned / unavailable (CI).
-    public static func containerURL(fileManager: FileManager = .default) -> URL? {
-        fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupID)
+    public static func containerURL(
+        fileManager: FileManager = .default,
+        appGroupID: String? = nil
+    ) -> URL? {
+        let groupID = appGroupID ?? Self.appGroupID
+        return fileManager.containerURL(forSecurityApplicationGroupIdentifier: groupID)
     }
 
     public static func cookiesDirectory(

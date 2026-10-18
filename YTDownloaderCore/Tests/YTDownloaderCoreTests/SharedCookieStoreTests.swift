@@ -100,4 +100,40 @@ final class SharedCookieStoreTests: XCTestCase {
             }
         }
     }
+
+    func testResolveAppGroupIDFromInfoPlist() {
+        let teamPrefixed = SharedCookieStore.resolveAppGroupID(
+            infoDictionary: [
+                SharedCookieStore.appGroupIDInfoPlistKey: "4DVJSNGT52.com.ytdownloader.shared"
+            ]
+        )
+        XCTAssertEqual(teamPrefixed, "4DVJSNGT52.com.ytdownloader.shared")
+    }
+
+    func testResolveAppGroupIDFallsBackWhenMissingOrUnexpanded() {
+        XCTAssertEqual(
+            SharedCookieStore.resolveAppGroupID(infoDictionary: [:]),
+            SharedCookieStore.appGroupIDSuffix
+        )
+        XCTAssertEqual(
+            SharedCookieStore.resolveAppGroupID(infoDictionary: [
+                SharedCookieStore.appGroupIDInfoPlistKey:
+                    "$(TeamIdentifierPrefix)com.ytdownloader.shared"
+            ]),
+            SharedCookieStore.appGroupIDSuffix
+        )
+        XCTAssertEqual(
+            SharedCookieStore.resolveAppGroupID(infoDictionary: [
+                SharedCookieStore.appGroupIDInfoPlistKey: "   "
+            ]),
+            SharedCookieStore.appGroupIDSuffix
+        )
+    }
+
+    func testResolveAppGroupIDRejectsLegacyGroupPrefixHardcode() {
+        // Entitlements use team-prefixed form; runtime must not invent `group.`.
+        let id = SharedCookieStore.resolveAppGroupID(infoDictionary: [:])
+        XCTAssertFalse(id.hasPrefix("group."))
+        XCTAssertEqual(id, "com.ytdownloader.shared")
+    }
 }
