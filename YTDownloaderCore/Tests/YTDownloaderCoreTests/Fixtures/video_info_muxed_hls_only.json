@@ -1,0 +1,95 @@
+{
+  "id": "rBIesPXJV2E",
+  "title": "Age-restricted muxed HLS only",
+  "formats": [
+    {
+      "format_id": "sb0",
+      "ext": "mhtml",
+      "protocol": "mhtml",
+      "vcodec": "none",
+      "acodec": "none",
+      "height": null,
+      "fps": null,
+      "tbr": null,
+      "format_note": "storyboard"
+    },
+    {
+      "format_id": "91",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "avc1.4D4000",
+      "acodec": "mp4a.40.2",
+      "width": 256,
+      "height": 144,
+      "fps": 30,
+      "tbr": 244,
+      "format_note": "144p",
+      "resolution": "256x144"
+    },
+    {
+      "format_id": "92",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "avc1.4D4001",
+      "acodec": "mp4a.40.2",
+      "width": 426,
+      "height": 240,
+      "fps": 30,
+      "tbr": 340,
+      "format_note": "240p",
+      "resolution": "426x240"
+    },
+    {
+      "format_id": "93",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "avc1.4D4002",
+      "acodec": "mp4a.40.2",
+      "width": 640,
+      "height": 360,
+      "fps": 30,
+      "tbr": 460,
+      "format_note": "360p",
+      "resolution": "640x360"
+    },
+    {
+      "format_id": "94",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "avc1.4D4003",
+      "acodec": "mp4a.40.2",
+      "width": 853,
+      "height": 480,
+      "fps": 30,
+      "tbr": 580,
+      "format_note": "480p",
+      "resolution": "853x480"
+    },
+    {
+      "format_id": "95",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "avc1.4D4004",
+      "acodec": "mp4a.40.2",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "tbr": 820,
+      "format_note": "720p",
+      "resolution": "1280x720"
+    },
+    {
+      "format_id": "96",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "avc1.4D4005",
+      "acodec": "mp4a.40.2",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "tbr": 1180,
+      "format_note": "1080p",
+      "resolution": "1920x1080"
+    }
+  ]
+}

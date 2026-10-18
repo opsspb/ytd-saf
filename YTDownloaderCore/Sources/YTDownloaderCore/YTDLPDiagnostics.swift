@@ -176,6 +176,119 @@ public enum YTDLPDiagnostics {
         return writeLogBody(sections.joined(separator: "\n") + "\n", to: fileURL)
     }
 
+    /// One compact line per format (no URLs, no cookies).
+    public static func formatTableLines(from formats: [VideoFormat]) -> [String] {
+        formats.map { format in
+            [
+                format.formatId,
+                format.ext,
+                format.protocolName ?? "",
+                format.vcodec ?? "null",
+                format.acodec ?? "null",
+                format.height.map(String.init) ?? "",
+                format.fps.map { String($0) } ?? "",
+                format.tbr.map { String($0) } ?? "",
+                format.formatNote ?? ""
+            ].joined(separator: "\t")
+        }
+    }
+
+    /// When the separable picker fails: format table + which fallback spec will be used.
+    /// Optionally writes a URL-stripped copy of the -J JSON next to the log (mode 0600).
+    @discardableResult
+    public static func writeFormatPickerFallbackLog(
+        info: YTDLPInfo,
+        fallbackSpec: String,
+        reason: String = "no separable video+audio pair",
+        saveInfoJSON: Bool = true,
+        fileManager: FileManager = .default,
+        date: Date = Date(),
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL? {
+        let dir = logsDirectory(homeDirectory: homeDirectory, fileManager: fileManager)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+        let stamp = formatter.string(from: date)
+        let fileURL = dir.appendingPathComponent("format-picker-\(stamp).log")
+
+        var sections: [String] = []
+        sections.append("=== format picker fallback ===")
+        sections.append("id=\(info.id)")
+        sections.append("title=\(info.title)")
+        sections.append("reason=\(reason)")
+        sections.append("fallbackSpec=\(fallbackSpec)")
+        sections.append("formatCount=\(info.formats.count)")
+        sections.append("")
+        sections.append("=== formats (format_id, ext, protocol, vcodec, acodec, height, fps, tbr, format_note) ===")
+        let table = formatTableLines(from: info.formats)
+        if table.isEmpty {
+            sections.append("(none)")
+        } else {
+            sections.append(contentsOf: table)
+        }
+
+        let logURL = writeLogBody(sections.joined(separator: "\n") + "\n", to: fileURL)
+
+        if saveInfoJSON {
+            let jsonURL = dir.appendingPathComponent("format-picker-\(stamp).json")
+            if let data = try? strippedInfoJSON(info) {
+                writeData(data, to: jsonURL, mode: 0o600, fileManager: fileManager)
+            }
+        }
+
+        return logURL
+    }
+
+    /// Encode info without URL-bearing fields (webpage/original URLs and any accidental extras).
+    public static func strippedInfoJSON(_ info: YTDLPInfo) throws -> Data {
+        let formats: [[String: Any]] = info.formats.map { format in
+            var row: [String: Any] = [
+                "format_id": format.formatId,
+                "ext": format.ext
+            ]
+            if let v = format.protocolName { row["protocol"] = v }
+            if let v = format.vcodec { row["vcodec"] = v } else { row["vcodec"] = NSNull() }
+            if let v = format.acodec { row["acodec"] = v } else { row["acodec"] = NSNull() }
+            if let v = format.width { row["width"] = v }
+            if let v = format.height { row["height"] = v }
+            if let v = format.fps { row["fps"] = v }
+            if let v = format.tbr { row["tbr"] = v }
+            if let v = format.vbr { row["vbr"] = v }
+            if let v = format.abr { row["abr"] = v }
+            if let v = format.formatNote { row["format_note"] = v }
+            if let v = format.resolution { row["resolution"] = v }
+            if let v = format.language { row["language"] = v }
+            if let v = format.languagePreference { row["language_preference"] = v }
+            return row
+        }
+        let payload: [String: Any] = [
+            "id": info.id,
+            "title": info.title,
+            "formats": formats
+        ]
+        return try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    @discardableResult
+    private static func writeData(
+        _ data: Data,
+        to fileURL: URL,
+        mode: Int,
+        fileManager: FileManager
+    ) -> URL? {
+        do {
+            try data.write(to: fileURL, options: .atomic)
+            try fileManager.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(mode))],
+                ofItemAtPath: fileURL.path
+            )
+            return fileURL
+        } catch {
+            return nil
+        }
+    }
+
     private static func writeLogBody(_ body: String, to fileURL: URL) -> URL? {
         do {
             try Data(body.utf8).write(to: fileURL, options: .atomic)

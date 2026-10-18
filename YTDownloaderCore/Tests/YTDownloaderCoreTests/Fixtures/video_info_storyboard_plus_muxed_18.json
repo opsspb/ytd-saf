@@ -1,0 +1,35 @@
+{
+  "id": "storyMux18",
+  "title": "Storyboards plus progressive 18",
+  "formats": [
+    {
+      "format_id": "sb0",
+      "ext": "mhtml",
+      "protocol": "mhtml",
+      "vcodec": "none",
+      "acodec": "none",
+      "format_note": "storyboard"
+    },
+    {
+      "format_id": "sb1",
+      "ext": "mhtml",
+      "protocol": "mhtml",
+      "vcodec": "none",
+      "acodec": "none",
+      "format_note": "storyboard"
+    },
+    {
+      "format_id": "18",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "avc1.42001E",
+      "acodec": "mp4a.40.2",
+      "width": 640,
+      "height": 360,
+      "fps": 30,
+      "tbr": 500,
+      "format_note": "360p",
+      "resolution": "640x360"
+    }
+  ]
+}

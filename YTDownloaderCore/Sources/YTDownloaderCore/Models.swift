@@ -134,9 +134,8 @@ public struct VideoFormat: Codable, Equatable, Sendable {
         return nil
     }
 
-    /// Missing codec fields are treated like yt-dlp's `"none"`.
+    /// Missing `vcodec` is treated like yt-dlp's `"none"` (audio-only rows often omit it).
     private var normalizedVcodec: String { vcodec ?? "none" }
-    private var normalizedAcodec: String { acodec ?? "none" }
 
     /// True when resolution/note mark this as an audio-only stream (HLS 233/234 omit `acodec`).
     public var isAudioOnlyByMeta: Bool {
@@ -147,29 +146,41 @@ public struct VideoFormat: Codable, Equatable, Sendable {
         let note = (formatNote ?? "").lowercased()
         return note == "audio only" || note.hasPrefix("audio only")
     }
-    
+
+    /// Explicit `"none"` / empty means no audio. Missing/null `acodec` is *unknown* — not video-only.
+    /// Age-restricted / web_safari lists often omit `acodec` on rows that still carry audio.
     public var isVideoOnly: Bool {
-        let a = normalizedAcodec
+        guard let a = acodec else { return false }
         return a == "none" || a.isEmpty
     }
-    
+
     public var isAudioOnly: Bool {
         let v = normalizedVcodec
         return v == "none" || v.isEmpty
     }
-    
+
     public var hasVideo: Bool {
         let v = normalizedVcodec
         return v != "none" && !v.isEmpty
     }
-    
+
+    /// Real audio codec string present (not `"none"`, empty, or missing).
+    public var hasExplicitAudioCodec: Bool {
+        guard let a = acodec else { return false }
+        return a != "none" && !a.isEmpty
+    }
+
     public var hasAudio: Bool {
-        let a = normalizedAcodec
-        if a != "none" && !a.isEmpty {
+        if hasExplicitAudioCodec {
             return true
         }
         // Age-restricted / web_safari HLS audio rows often have vcodec=none and null acodec.
         return isAudioOnly && isAudioOnlyByMeta
+    }
+
+    /// Progressive / HLS muxed: both a video codec and an explicit audio codec.
+    public var isMuxed: Bool {
+        hasVideo && hasExplicitAudioCodec
     }
 }
 

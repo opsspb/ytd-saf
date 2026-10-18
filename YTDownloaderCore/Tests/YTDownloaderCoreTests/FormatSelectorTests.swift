@@ -239,6 +239,7 @@ final class FormatSelectorTests: XCTestCase {
     }
 
     /// Age-restricted / web_safari often yields HLS-only lists where audio 233/234 omit `acodec`.
+    /// Video rows in this fixture use explicit `acodec: "none"`, so separable pick still works.
     func testHLSOnlyNullAcodecAudioIsSelectable() throws {
         let jsonData = try loadFixture(named: "video_info_hls_only_null_acodec_audio.json")
         let info = try JSONDecoder().decode(YTDLPInfo.self, from: jsonData)
@@ -251,14 +252,73 @@ final class FormatSelectorTests: XCTestCase {
         XCTAssertTrue(selected.audio.isAudioOnly)
     }
 
-    func testNullAcodecVideoOnlyStillSelectable() throws {
+    /// Missing/null `acodec` with a video codec is *unknown audio*, not video-only.
+    /// Separable pick fails; `pickFormats` falls back to yt-dlp `bv*+ba/b` (no muxed rows here).
+    func testNullAcodecVideoIsNotTreatedAsVideoOnly() throws {
         let formats = [
             VideoFormat(formatId: "299", ext: "mp4", width: 1920, height: 1080, fps: 60, vcodec: "avc1", acodec: nil, vbr: 4000, protocolName: "https"),
             VideoFormat(formatId: "140", ext: "m4a", vcodec: "none", acodec: "mp4a", abr: 128, protocolName: "https")
         ]
-        let selected = try selector.selectBestFormats(from: YTDLPInfo(id: "x", title: "t", formats: formats))
-        XCTAssertEqual(selected.video.formatId, "299")
-        XCTAssertTrue(selected.video.isVideoOnly)
+        let info = YTDLPInfo(id: "x", title: "t", formats: formats)
+        XCTAssertFalse(formats[0].isVideoOnly)
+        XCTAssertThrowsError(try selector.selectBestFormats(from: info)) { error in
+            XCTAssertEqual(error as? DownloadError, .noSuitableFormats)
+        }
+        let pick = selector.pickFormats(from: info)
+        guard case .ytDlpFallback(let spec) = pick else {
+            return XCTFail("expected yt-dlp fallback, got \(pick)")
+        }
+        XCTAssertEqual(spec, FormatSelector.ytDlpFallbackFormatSpec)
+    }
+
+    func testPickFormatsMuxedHLSOnlyPicksHighest() throws {
+        let info = try JSONDecoder().decode(YTDLPInfo.self, from: try loadFixture(named: "video_info_muxed_hls_only.json"))
+        XCTAssertThrowsError(try selector.selectBestFormats(from: info))
+        let pick = selector.pickFormats(from: info)
+        guard case .muxed(let format) = pick else {
+            return XCTFail("expected muxed pick, got \(pick)")
+        }
+        XCTAssertEqual(format.formatId, "96")
+        XCTAssertEqual(format.height, 1080)
+        XCTAssertEqual(pick.fallbackSpec, "96")
+    }
+
+    func testPickFormatsNullAcodecVideoAndAudioFallsBackToYtDlp() throws {
+        let info = try JSONDecoder().decode(
+            YTDLPInfo.self,
+            from: try loadFixture(named: "video_info_null_acodec_video_and_audio.json")
+        )
+        let pick = selector.pickFormats(from: info)
+        guard case .ytDlpFallback(let spec) = pick else {
+            return XCTFail("expected yt-dlp fallback, got \(pick)")
+        }
+        XCTAssertEqual(spec, "bv*+ba/b")
+    }
+
+    func testPickFormatsStoryboardsPlusMuxed18() throws {
+        let info = try JSONDecoder().decode(
+            YTDLPInfo.self,
+            from: try loadFixture(named: "video_info_storyboard_plus_muxed_18.json")
+        )
+        let pick = selector.pickFormats(from: info)
+        guard case .muxed(let format) = pick else {
+            return XCTFail("expected muxed 18, got \(pick)")
+        }
+        XCTAssertEqual(format.formatId, "18")
+        XCTAssertEqual(format.height, 360)
+    }
+
+    func testWebSafariMeAtTheZooFixtureStillSelectsSeparable() throws {
+        let info = try JSONDecoder().decode(
+            YTDLPInfo.self,
+            from: try loadFixture(named: "video_info_web_safari_me_at_the_zoo.json")
+        )
+        let pick = selector.pickFormats(from: info)
+        guard case .separate(let formats, _) = pick else {
+            return XCTFail("expected separable pick for public web_safari list, got \(pick)")
+        }
+        XCTAssertGreaterThanOrEqual(formats.video.height ?? 0, 144)
+        XCTAssertTrue(formats.audio.hasAudio)
     }
 
     func testDecodesFloatFilesizeAndSelects() throws {

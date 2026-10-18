@@ -262,34 +262,32 @@ class DownloadManager: ObservableObject {
                 ytdlpPath: paths.ytdlp,
                 ffmpegPath: paths.ffmpeg,
                 cookieMode: cookieMode,
-                cookieFilePath: cookieFilePath
+                cookieFilePath: cookieFilePath,
+                aria2cPath: paths.aria2c,
+                ffprobePath: paths.ffprobe
             )
             let info = try pipeline.fetchInfo(url: item.url, useCookies: useCookies)
-            let formats = try formatSelector.selectBestFormats(from: info)
-            let fallbackIds = formatSelector.sameResolutionRung(as: formats.video, from: info)
-                .map(\.formatId)
-                .filter { $0 != formats.video.formatId }
-            return (pipeline, info, formats, fallbackIds)
+            let pick = formatSelector.pickFormats(from: info)
+            return (pipeline, info, pick)
         }.value
 
         let info = result.1
-        let formats = result.2
+        let pick = result.2
         updateTitle(id: item.id, title: info.title)
         applyStage(
             id: item.id,
             status: .downloading,
             stage: .formatChosen,
             title: info.title,
-            formatSummary: formats.formatSummary
+            formatSummary: pick.formatSummary
         )
 
-        try await downloadAndMerge(
+        try await downloadPickedYouTube(
             item: item,
             info: info,
-            formats: formats,
+            pick: pick,
             pipeline: result.0,
-            useCookies: useCookies,
-            fallbackVideoFormatIds: result.3
+            useCookies: useCookies
         )
     }
 
@@ -315,7 +313,8 @@ class DownloadManager: ObservableObject {
                 ffmpegPath: paths.ffmpeg,
                 cookieMode: cookieMode,
                 cookieFilePath: cookieFilePath,
-                aria2cPath: paths.aria2c
+                aria2cPath: paths.aria2c,
+                ffprobePath: paths.ffprobe
             )
             return try pipeline.downloadBySort(
                 url: url,
@@ -376,7 +375,7 @@ class DownloadManager: ObservableObject {
         var tempCookieURL: URL?
         defer {
             if let tempCookieURL {
-                try? FileManager.default.removeItem(at: tempCookieURL)
+                CookieJarDebug.disposeTempCookieFile(tempCookieURL, supportDirectory: supportDirectory)
             }
         }
 
@@ -500,13 +499,12 @@ class DownloadManager: ObservableObject {
         saveQueue()
     }
 
-    private func downloadAndMerge(
+    private func downloadPickedYouTube(
         item: DownloadItem,
         info: YTDLPInfo,
-        formats: SelectedFormats,
+        pick: FormatPick,
         pipeline: VideoDownloadPipeline,
-        useCookies: Bool = false,
-        fallbackVideoFormatIds: [String] = []
+        useCookies: Bool = false
     ) async throws {
         let downloadDir = (settings.downloadDirectory as NSString).expandingTildeInPath
         let itemID = item.id
@@ -518,14 +516,12 @@ class DownloadManager: ObservableObject {
             let outputFile = (downloadDir as NSString).appendingPathComponent(
                 OutputFilename.make(title: info.title, videoId: videoId)
             )
-            try pipeline.downloadMerged(
+            try pipeline.downloadPicked(
                 url: url,
-                videoFormatId: formats.video.formatId,
-                audioFormatId: formats.audio.formatId,
+                info: info,
+                pick: pick,
                 outputPath: outputFile,
                 useCookies: useCookies,
-                videoProtocol: formats.video.protocolName,
-                fallbackVideoFormatIds: fallbackVideoFormatIds,
                 onProgress: { progress in
                     Task { @MainActor in
                         DownloadProgressBridge.shared.update(id: itemID, fraction: progress)

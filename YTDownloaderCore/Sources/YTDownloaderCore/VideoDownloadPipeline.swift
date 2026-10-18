@@ -17,6 +17,7 @@ public struct DownloadPipelineResult: Sendable {
 public struct VideoDownloadPipeline: Sendable {
     public let ytdlpPath: String
     public let ffmpegPath: String
+    public let ffprobePath: String?
     public let aria2cPath: String?
     public var cookieMode: CookieMode
     public var cookieFilePath: String?
@@ -26,13 +27,21 @@ public struct VideoDownloadPipeline: Sendable {
         ffmpegPath: String,
         cookieMode: CookieMode = .none,
         cookieFilePath: String? = nil,
-        aria2cPath: String? = nil
+        aria2cPath: String? = nil,
+        ffprobePath: String? = nil
     ) {
         self.ytdlpPath = ytdlpPath
         self.ffmpegPath = ffmpegPath
         self.cookieMode = cookieMode
         self.cookieFilePath = cookieFilePath
         self.aria2cPath = aria2cPath
+        if let ffprobePath, !ffprobePath.isEmpty {
+            self.ffprobePath = ffprobePath
+        } else {
+            let sibling = (ffmpegPath as NSString).deletingLastPathComponent
+                .appending("/ffprobe")
+            self.ffprobePath = FileManager.default.isExecutableFile(atPath: sibling) ? sibling : nil
+        }
     }
 
     public func listFormats(url: String) throws -> String {
@@ -43,11 +52,44 @@ public struct VideoDownloadPipeline: Sendable {
         return result.stdout
     }
 
-    public func fetchInfo(url: String, useCookies: Bool) throws -> YTDLPInfo {
+    /// Arguments for `yt-dlp -J` (same auth flags as the download step).
+    public func infoArguments(url: String, useCookies: Bool) -> [String] {
         var args = ["-J", "--no-warnings"]
-        args.append(contentsOf: Self.youtubeExtractorArgs(for: url, useCookies: useCookies))
-        args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        args.append(contentsOf: authArguments(url: url, useCookies: useCookies))
         args.append(url)
+        return args
+    }
+
+    /// Arguments for a format-spec download (muxed id or `bv*+ba/b`).
+    public func formatSpecDownloadArguments(
+        url: String,
+        formatSpec: String,
+        outputPath: String,
+        useCookies: Bool
+    ) -> [String] {
+        var args = [
+            "-f", formatSpec,
+            "--merge-output-format", "mkv",
+            "--ffmpeg-location", ffmpegPath,
+            "-o", outputPath,
+            "--no-warnings",
+            "--no-part",
+            "--force-overwrites"
+        ]
+        args.append(contentsOf: YTDLPProgress.progressCLIArgs)
+        args.append(contentsOf: authArguments(url: url, useCookies: useCookies))
+        args.append(url)
+        return args
+    }
+
+    /// `--extractor-args` + `--cookies` / `--cookies-from-browser` shared by -J and download.
+    public func authArguments(url: String, useCookies: Bool) -> [String] {
+        Self.youtubeExtractorArgs(for: url, useCookies: useCookies)
+            + cookieArguments(useCookies: useCookies)
+    }
+
+    public func fetchInfo(url: String, useCookies: Bool) throws -> YTDLPInfo {
+        let args = infoArguments(url: url, useCookies: useCookies)
         let result = try run(ytdlpPath, arguments: args, netscapeForLog: useCookies ? cookieFileNetscape() : nil)
         if result.status != 0 {
             throw ErrorClassifier().classifyError(from: result.stderr.isEmpty ? result.stdout : result.stderr)
@@ -111,8 +153,7 @@ public struct VideoDownloadPipeline: Sendable {
             "--no-part"
         ]
         args.append(contentsOf: YTDLPProgress.progressCLIArgs)
-        args.append(contentsOf: Self.youtubeExtractorArgs(for: url, useCookies: useCookies))
-        args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        args.append(contentsOf: authArguments(url: url, useCookies: useCookies))
         args.append(url)
         let session = ProgressSessionBox()
         let result = try run(
@@ -293,19 +334,12 @@ public struct VideoDownloadPipeline: Sendable {
         onTransfer: (@Sendable (TransferProgress) -> Void)?,
         onMerging: (@Sendable () -> Void)?
     ) throws {
-        var args = [
-            "-f", formatSpec,
-            "--merge-output-format", "mkv",
-            "--ffmpeg-location", ffmpegPath,
-            "-o", outputPath,
-            "--no-warnings",
-            "--no-part",
-            "--force-overwrites"
-        ]
-        args.append(contentsOf: YTDLPProgress.progressCLIArgs)
-        args.append(contentsOf: Self.youtubeExtractorArgs(for: url, useCookies: useCookies))
-        args.append(contentsOf: cookieArguments(useCookies: useCookies))
-        args.append(url)
+        let args = formatSpecDownloadArguments(
+            url: url,
+            formatSpec: formatSpec,
+            outputPath: outputPath,
+            useCookies: useCookies
+        )
         let session = ProgressSessionBox()
         let result = try run(
             ytdlpPath,
@@ -325,6 +359,115 @@ public struct VideoDownloadPipeline: Sendable {
         }
         guard FileManager.default.fileExists(atPath: outputPath) else {
             throw DownloadError.downloadFailed("yt-dlp finished without writing \(outputPath)")
+        }
+    }
+
+    /// Download using a precomputed `FormatPick` (separable, muxed, or yt-dlp fallback).
+    public func downloadPicked(
+        url: String,
+        info: YTDLPInfo,
+        pick: FormatPick,
+        outputPath: String,
+        useCookies: Bool,
+        onProgress: (@Sendable (Double) -> Void)? = nil,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil,
+        onMerging: (@Sendable () -> Void)? = nil
+    ) throws {
+        if !pick.usedSeparablePicker, let spec = pick.fallbackSpec {
+            YTDLPDiagnostics.writeFormatPickerFallbackLog(info: info, fallbackSpec: spec)
+        }
+
+        switch pick {
+        case .separate(let formats, let fallbackIds):
+            try downloadMerged(
+                url: url,
+                videoFormatId: formats.video.formatId,
+                audioFormatId: formats.audio.formatId,
+                outputPath: outputPath,
+                useCookies: useCookies,
+                videoProtocol: formats.video.protocolName,
+                fallbackVideoFormatIds: fallbackIds,
+                onProgress: onProgress,
+                onTransfer: onTransfer,
+                onMerging: onMerging
+            )
+        case .muxed(let format):
+            try downloadByFormatSpec(
+                url: url,
+                formatSpec: format.formatId,
+                outputPath: outputPath,
+                useCookies: useCookies,
+                onProgress: onProgress,
+                onTransfer: onTransfer,
+                onMerging: onMerging
+            )
+        case .ytDlpFallback(let spec):
+            try downloadByFormatSpec(
+                url: url,
+                formatSpec: spec,
+                outputPath: outputPath,
+                useCookies: useCookies,
+                onProgress: onProgress,
+                onTransfer: onTransfer,
+                onMerging: onMerging
+            )
+        }
+
+        try verifyOutputHasVideoAndAudio(at: outputPath)
+    }
+
+    /// Single-spec download into `outputPath` (MKV), reusing the same cookie / extractor-args as `-J`.
+    public func downloadByFormatSpec(
+        url: String,
+        formatSpec: String,
+        outputPath: String,
+        useCookies: Bool,
+        onProgress: (@Sendable (Double) -> Void)? = nil,
+        onTransfer: (@Sendable (TransferProgress) -> Void)? = nil,
+        onMerging: (@Sendable () -> Void)? = nil
+    ) throws {
+        defer { removeMergeSidecars(outputPath: outputPath) }
+        let workDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-spec-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDir) }
+        let tempOutput = workDir.appendingPathComponent("out.mkv").path
+        try downloadMergedOnce(
+            url: url,
+            formatSpec: formatSpec,
+            outputPath: tempOutput,
+            useCookies: useCookies,
+            onProgress: onProgress,
+            onTransfer: onTransfer,
+            onMerging: onMerging
+        )
+        try installFinalOutput(from: tempOutput, to: outputPath)
+    }
+
+    /// Best-effort ffprobe check: require ≥1 video and ≥1 audio stream.
+    public func verifyOutputHasVideoAndAudio(at outputPath: String) throws {
+        guard let ffprobePath, FileManager.default.isExecutableFile(atPath: ffprobePath) else {
+            return
+        }
+        let result = try run(ffprobePath, arguments: [
+            "-v", "error",
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0",
+            outputPath
+        ])
+        if result.status != 0 {
+            // Probe failure should not mask a successful download unless streams are clearly wrong.
+            return
+        }
+        let lines = result.stdout
+            .split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        let hasVideo = lines.contains { $0 == "video" || $0.hasPrefix("video") }
+        let hasAudio = lines.contains { $0 == "audio" || $0.hasPrefix("audio") }
+        if !hasVideo {
+            throw DownloadError.downloadFailed("Downloaded file is missing a video stream")
+        }
+        if !hasAudio {
+            throw DownloadError.downloadFailed("Downloaded file is missing an audio stream")
         }
     }
 
@@ -443,26 +586,25 @@ public struct VideoDownloadPipeline: Sendable {
         try FileManager.default.createDirectory(atPath: outputDirectory, withIntermediateDirectories: true)
         let formatList = try listFormats(url: url)
         let info = try fetchInfo(url: url, useCookies: useCookies)
-        let selector = FormatSelector()
-        let formats = try selector.selectBestFormats(from: info)
-        let fallbackIds = selector.sameResolutionRung(as: formats.video, from: info)
-            .map(\.formatId)
-            .filter { $0 != formats.video.formatId }
+        let pick = FormatSelector().pickFormats(from: info)
 
         let outputFile = (outputDirectory as NSString).appendingPathComponent(
             OutputFilename.make(title: info.title, videoId: info.id)
         )
-        try downloadMerged(
+        try downloadPicked(
             url: url,
-            videoFormatId: formats.video.formatId,
-            audioFormatId: formats.audio.formatId,
+            info: info,
+            pick: pick,
             outputPath: outputFile,
-            useCookies: useCookies,
-            videoProtocol: formats.video.protocolName,
-            fallbackVideoFormatIds: fallbackIds
+            useCookies: useCookies
         )
 
-        return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)
+        return DownloadPipelineResult(
+            info: info,
+            formats: pick.selectedFormats,
+            outputPath: outputFile,
+            formatList: formatList
+        )
     }
 
     /// VK (and any adapter with a format spec): let yt-dlp pick formats.
@@ -586,6 +728,7 @@ public struct VideoDownloadPipeline: Sendable {
             OutputFilename.make(title: choice.title.isEmpty ? "video" : choice.title, videoId: choice.id.isEmpty ? "vk" : choice.id)
         )
         try installFinalOutput(from: tempOutput, to: outputFile)
+        try verifyOutputHasVideoAndAudio(at: outputFile)
         return DownloadPipelineResult(info: info, formats: formats, outputPath: outputFile, formatList: formatList)
     }
 
@@ -625,8 +768,7 @@ public struct VideoDownloadPipeline: Sendable {
             "--no-simulate"
         ]
         args.append(contentsOf: YTDLPProgress.progressCLIArgs)
-        args.append(contentsOf: Self.youtubeExtractorArgs(for: url, useCookies: useCookies))
-        args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        args.append(contentsOf: authArguments(url: url, useCookies: useCookies))
         args.append(contentsOf: ["--print", YTDLPOutputParser.metaPrintTemplate(), url])
         let aria2c = useExternalDownloader ? aria2cPath : nil
         args.insert(contentsOf: adapter.downloadArgs(aria2cPath: aria2c), at: args.count - 1)
