@@ -113,7 +113,10 @@ final class CookieAccessDiagnoserTests: XCTestCase {
         XCTAssertEqual(kind, .extensionCookiesUnavailable)
         let guidance = CookieFailureGuidance(kind: kind)
         XCTAssertTrue(guidance.showsOpenSettings)
+        XCTAssertEqual(guidance.primaryAction, .openSafariExtensionSettings)
+        XCTAssertEqual(guidance.primaryButtonTitle, "Open Safari Extension Settings")
         XCTAssertTrue(guidance.statusText.lowercased().contains("cookie"))
+        XCTAssertTrue(guidance.alertMessage.lowercased().contains("click yd"))
     }
 
     func testClassifyFullDiskAccess() {
@@ -138,7 +141,16 @@ final class CookieAccessDiagnoserTests: XCTestCase {
 
         let guidance = CookieFailureGuidance(kind: .fullDiskAccessRequired)
         XCTAssertTrue(guidance.showsOpenSettings)
+        XCTAssertEqual(guidance.primaryAction, .openFullDiskAccessSettings)
+        XCTAssertEqual(guidance.primaryButtonTitle, "Open Privacy Settings")
         XCTAssertTrue(guidance.alertTitle.contains("Full Disk Access"))
+    }
+
+    func testInsufficientHasSingleOKButton() {
+        let guidance = CookieFailureGuidance(kind: .cookiesInsufficient)
+        XCTAssertFalse(guidance.showsOpenSettings)
+        XCTAssertNil(guidance.primaryButtonTitle)
+        XCTAssertEqual(guidance.primaryAction, .none)
     }
 
     func testClassifyInsufficientAfterExtensionCookies() {

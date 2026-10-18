@@ -80,6 +80,21 @@ function encodeCookiesPayload(cookies) {
     return null;
 }
 
+async function cookieStoreIds() {
+    if (!browser.cookies.getAllCookieStores) {
+        return [undefined];
+    }
+    try {
+        const stores = await browser.cookies.getAllCookieStores();
+        if (stores && stores.length) {
+            return stores.map((store) => store.id);
+        }
+    } catch (error) {
+        console.warn('YTDownloader: getAllCookieStores failed');
+    }
+    return [undefined];
+}
+
 async function collectCookiesForURL(pageUrl) {
     if (!browser.cookies || !browser.cookies.getAll) {
         return [];
@@ -87,33 +102,53 @@ async function collectCookiesForURL(pageUrl) {
     const domains = domainsForPageURL(pageUrl);
     const seen = new Set();
     const all = [];
-    for (const domain of domains) {
-        try {
-            const batch = await browser.cookies.getAll({ domain });
-            for (const cookie of batch) {
-                const key = `${cookie.domain}\n${cookie.path}\n${cookie.name}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                all.push(cookie);
+    const storeIds = await cookieStoreIds();
+
+    const ingest = (batch) => {
+        for (const cookie of batch || []) {
+            const key = `${cookie.domain}\n${cookie.path}\n${cookie.name}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            all.push(cookie);
+        }
+    };
+
+    for (const storeId of storeIds) {
+        for (const domain of domains) {
+            try {
+                const query = { domain };
+                if (storeId !== undefined) query.storeId = storeId;
+                ingest(await browser.cookies.getAll(query));
+            } catch (error) {
+                // Safari returns nothing until host permission is granted via user gesture.
+                console.warn('YTDownloader: cookies.getAll failed for domain');
             }
-        } catch (error) {
-            // Safari may deny until the user accepts the cookies permission prompt.
-            console.warn('YTDownloader: cookies.getAll failed for domain');
+        }
+        if (pageUrl) {
+            try {
+                const query = { url: pageUrl };
+                if (storeId !== undefined) query.storeId = storeId;
+                ingest(await browser.cookies.getAll(query));
+            } catch (error) {
+                // Ignore URL-scoped failures.
+            }
         }
     }
     return all;
 }
 
-function downloadSchemeURL(videoId, url, cookiesPayload) {
+function downloadSchemeURL(videoId, url, { cookiesPayload, cookieRef } = {}) {
     const params = new URLSearchParams({ videoId, url });
-    if (cookiesPayload) {
+    if (cookieRef) {
+        params.set('cookieRef', cookieRef);
+    } else if (cookiesPayload) {
         params.set('cookies', cookiesPayload);
     }
     return `ytdownloader://download?${params.toString()}`;
 }
 
-function openHostApp(videoId, url, cookiesPayload) {
-    const scheme = downloadSchemeURL(videoId, url, cookiesPayload);
+function openHostApp(videoId, url, handoff = {}) {
+    const scheme = downloadSchemeURL(videoId, url, handoff);
 
     // Custom-scheme navigation from the extension page launches the host app
     // even when the sandboxed native handler cannot call NSWorkspace.
@@ -151,24 +186,35 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
         const cookies = await collectCookiesForURL(url);
         const cookiesPayload = encodeCookiesPayload(cookies);
-        openHostApp(videoId, url, cookiesPayload);
+        let cookieRef = null;
+        let via = 'url-scheme';
 
         try {
             const response = await notifyNativeHandler(videoId, url, cookiesPayload);
-            sendResponse(response || {
-                success: true,
-                videoId,
-                cookies: cookiesPayload || undefined
-            });
+            if (response && response.cookieRef) {
+                cookieRef = response.cookieRef;
+                via = 'native-app-group';
+            } else if (response && response.success) {
+                via = 'native';
+            }
         } catch (error) {
             console.warn('YTDownloader: native handler unavailable, URL scheme used instead', error);
-            sendResponse({
-                success: true,
-                videoId,
-                via: 'url-scheme',
-                cookies: cookiesPayload || undefined
-            });
         }
+
+        // Prefer short cookieRef URL; fall back to capped cookies= only when needed.
+        openHostApp(videoId, url, {
+            cookieRef,
+            cookiesPayload: cookieRef ? null : cookiesPayload
+        });
+
+        sendResponse({
+            success: true,
+            videoId,
+            via,
+            cookieRef: cookieRef || undefined,
+            cookies: cookieRef ? undefined : (cookiesPayload || undefined),
+            cookieCount: cookies.length
+        });
     })();
 
     return true;

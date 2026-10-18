@@ -2,8 +2,8 @@ import Foundation
 
 /// Commands accepted by the `ytdownloader://` URL scheme.
 public enum AppURLCommand: Equatable, Sendable {
-    /// `cookies` is base64url of Netscape cookies.txt or JSON cookie array from the extension.
-    case download(videoId: String, url: String, cookies: String? = nil)
+    /// `cookies` is legacy base64url Netscape/JSON; `cookieRef` points at an App Group file.
+    case download(videoId: String, url: String, cookies: String? = nil, cookieRef: String? = nil)
     case showQueue
     case showSettings
 }
@@ -40,8 +40,13 @@ public enum AppURL {
         }
     }
 
-    /// Build a compact download URL (optional cookies payload already base64url-encoded).
-    public static func downloadURL(videoId: String, url: String, cookies: String? = nil) -> URL? {
+    /// Build a compact download URL (`cookieRef` preferred; optional legacy cookies payload).
+    public static func downloadURL(
+        videoId: String,
+        url: String,
+        cookies: String? = nil,
+        cookieRef: String? = nil
+    ) -> URL? {
         var components = URLComponents()
         components.scheme = "ytdownloader"
         components.host = "download"
@@ -49,7 +54,9 @@ public enum AppURL {
             URLQueryItem(name: "videoId", value: videoId),
             URLQueryItem(name: "url", value: url)
         ]
-        if let cookies, !cookies.isEmpty {
+        if let cookieRef, !cookieRef.isEmpty {
+            items.append(URLQueryItem(name: "cookieRef", value: cookieRef))
+        } else if let cookies, !cookies.isEmpty {
             items.append(URLQueryItem(name: "cookies", value: cookies))
         }
         components.queryItems = items
@@ -61,10 +68,12 @@ public enum AppURL {
         let videoId = items.first(where: { $0.name == "videoId" })?.value
         let videoURL = items.first(where: { $0.name == "url" })?.value
         let cookies = items.first(where: { $0.name == "cookies" })?.value
+        let cookieRef = items.first(where: { $0.name == "cookieRef" })?.value
         guard let videoId, let videoURL, !videoId.isEmpty, !videoURL.isEmpty else {
             return nil
         }
         let payload = (cookies?.isEmpty == false) ? cookies : nil
-        return .download(videoId: videoId, url: videoURL, cookies: payload)
+        let ref = (cookieRef?.isEmpty == false) ? cookieRef : nil
+        return .download(videoId: videoId, url: videoURL, cookies: payload, cookieRef: ref)
     }
 }

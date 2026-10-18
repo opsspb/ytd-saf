@@ -72,6 +72,35 @@
     let observerActive = false;
     let lastQueued = null;
 
+    // Must be requested inside the YD click handler (user gesture) so Safari shows
+    // its standard host-permission prompt; background cookies.getAll is empty otherwise.
+    const COOKIE_HOST_ORIGINS = [
+        '*://*.youtube.com/*',
+        '*://youtube.com/*',
+        '*://*.google.com/*',
+        '*://google.com/*',
+        '*://*.vk.com/*',
+        '*://vk.com/*',
+        '*://*.vk.ru/*',
+        '*://vk.ru/*',
+        '*://*.vkvideo.ru/*',
+        '*://vkvideo.ru/*'
+    ];
+
+    async function requestCookieHostPermissions() {
+        const api = (global.browser && global.browser.permissions)
+            || (global.chrome && global.chrome.permissions);
+        if (!api || typeof api.request !== 'function') {
+            return true;
+        }
+        try {
+            return !!(await api.request({ origins: COOKIE_HOST_ORIGINS }));
+        } catch (error) {
+            console.warn('YTDownloader: permissions.request failed', error);
+            return false;
+        }
+    }
+
     function getVideoId() {
         const urlParams = new URLSearchParams(window.location.search);
         return urlParams.get('v');
@@ -164,11 +193,13 @@
         button.disabled = false;
     }
 
-    function openHostApp(videoId, url, cookiesPayload) {
+    function openHostApp(videoId, url, handoff) {
         if (global.__YTD_TEST__) return;
         const params = new URLSearchParams({ videoId, url });
-        if (cookiesPayload) {
-            params.set('cookies', cookiesPayload);
+        if (handoff && handoff.cookieRef) {
+            params.set('cookieRef', handoff.cookieRef);
+        } else if (handoff && handoff.cookies) {
+            params.set('cookies', handoff.cookies);
         }
         const scheme = `ytdownloader://download?${params.toString()}`;
         const iframe = document.createElement('iframe');
@@ -182,6 +213,9 @@
     async function queueDownload(button, videoId, url) {
         lastQueued = { videoId, url, at: Date.now() };
         setButtonState(button, 'working');
+
+        // First await in the click stack: keep the Safari permission prompt tied to the gesture.
+        await requestCookieHostPermissions();
 
         try {
             const runtime = (global.browser && global.browser.runtime) || (global.chrome && global.chrome.runtime);
@@ -197,8 +231,8 @@
                 url: url
             });
 
-            // Backup iframe after background collected cookies (avoid racing a cookieless enqueue).
-            openHostApp(videoId, url, response && response.cookies);
+            // Backup iframe; prefer App Group cookieRef over a long cookies= URL.
+            openHostApp(videoId, url, response || undefined);
 
             if (response && response.success) {
                 setButtonState(button, 'queued');

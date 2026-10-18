@@ -18,6 +18,18 @@
     "*://*.vk.ru/*",
     "*://vk.ru/*"
   ],
+  "optional_host_permissions": [
+    "*://*.youtube.com/*",
+    "*://youtube.com/*",
+    "*://*.google.com/*",
+    "*://google.com/*",
+    "*://*.vkvideo.ru/*",
+    "*://vkvideo.ru/*",
+    "*://*.vk.com/*",
+    "*://vk.com/*",
+    "*://*.vk.ru/*",
+    "*://vk.ru/*"
+  ],
   "content_scripts": [
     {
       "matches": ["*://*.youtube.com/*"],

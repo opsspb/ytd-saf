@@ -118,20 +118,25 @@ public enum ExtensionCookiePayload {
     }
 
     /// Prefer JSON array of browser cookies; fall back to treating the payload as Netscape text.
+    /// Also accepts raw Netscape from the App Group handoff (not base64url).
     public static func netscapeText(fromURLPayload encoded: String) -> String? {
+        if looksLikeNetscape(encoded) {
+            return encoded
+        }
         guard let decoded = decodeBase64URL(encoded) else { return nil }
-        if decoded.contains("\t"), decoded.contains("\n") || decoded.hasPrefix("#") {
+        if looksLikeNetscape(decoded) {
             return decoded
         }
         if let data = decoded.data(using: .utf8),
            let cookies = try? JSONDecoder().decode([BrowserCookie].self, from: data) {
             return netscapeText(from: cookies)
         }
-        // Raw Netscape without tabs check edge case
-        if decoded.contains("\t") {
-            return decoded
-        }
         return nil
+    }
+
+    public static func looksLikeNetscape(_ text: String) -> Bool {
+        if text.hasPrefix("# Netscape") { return true }
+        return text.contains("\t") && (text.contains("\n") || text.split(separator: "\t").count >= 7)
     }
 
     /// Build a URL-safe payload, dropping lower-priority cookies if over the size cap.

@@ -20,6 +20,7 @@
 		AA000001000000000000000C /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000024 /* AppIcon.icns */; };
 		AA0000010000000000000007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000021 /* Assets.xcassets */; };
 		AA0000010000000000000008 /* YTDownloaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000010000000000000031 /* YTDownloaderCore */; };
+		AA000001000000000000000E /* YTDownloaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000010000000000000032 /* YTDownloaderCore */; };
 		AA0000010000000000000101 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000111 /* SafariWebExtensionHandler.swift */; };
 		AA0000010000000000000102 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000121 /* manifest.json */; };
 		AA0000010000000000000103 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = AA0000010000000000000122 /* content.js */; };
@@ -100,6 +101,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA000001000000000000000E /* YTDownloaderCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -218,6 +220,9 @@
 			dependencies = (
 			);
 			name = YTDownloaderExtension;
+			packageProductDependencies = (
+				AA0000010000000000000032 /* YTDownloaderCore */,
+			);
 			productName = YTDownloaderExtension;
 			productReference = AA0000010000000000000141 /* YTDownloaderExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -597,6 +602,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		AA0000010000000000000031 /* YTDownloaderCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000010000000000000194 /* XCLocalSwiftPackageReference "YTDownloaderCore" */;
+			productName = YTDownloaderCore;
+		};
+		AA0000010000000000000032 /* YTDownloaderCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AA0000010000000000000194 /* XCLocalSwiftPackageReference "YTDownloaderCore" */;
 			productName = YTDownloaderCore;

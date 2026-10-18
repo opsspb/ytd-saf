@@ -23,7 +23,7 @@ struct SettingsView: View {
             }
             
             Section("Cookies") {
-                Text("Primary: the Safari extension sends cookies with each download (Safari prompts for cookie permission). Fallback modes below use the app process.")
+                Text("Primary: click YD in Safari — allow host access when prompted; cookies are handed off via the extension. Fallback modes below use the app process.")
                     .font(.caption)
                     .foregroundColor(.secondary)
 

@@ -44,14 +44,13 @@ The app must have been Run at least once so Safari can see the embedded `.appex`
 
 ## How a click reaches the app
 
-App Groups are not available on a free personal team, so the extension does **not** share a container with the app.
+1. YD click handler calls `browser.permissions.request({ origins: […] })` **inside the user gesture** so Safari shows its standard host-permission prompt (YouTube / Google / VK)
+2. Content script messages the background worker, which collects cookies via `browser.cookies` (including all cookie stores)
+3. Background `sendNativeMessage`s the payload to `SafariWebExtensionHandler`, which writes Netscape cookies into the App Group `group.com.ytdownloader.shared` and returns a short `cookieRef`
+4. A compact `ytdownloader://download?videoId=…&url=…&cookieRef=…` launches the host app (legacy `cookies=` base64url remains as fallback when the App Group is unavailable, e.g. unsigned CI)
+5. On sign-in errors the app reads the App Group file (or URL payload), writes a private temp `cookies.txt`, and retries with `--cookies`
 
-1. Content script sends `{ action: "download", videoId, url }`
-2. Background collects cookies via `browser.cookies` (Safari permission prompt) and opens `ytdownloader://download?videoId=…&url=…&cookies=…` (base64url Netscape/JSON)
-3. Launch Services starts the app if it is not running
-4. `AppDelegate` / `onOpenURL` enqueue the item; on sign-in errors the app writes a private temp `cookies.txt` and retries with `--cookies` before falling back to Safari’s cookie store
-
-A sandboxed `NSWorkspace.open` from the appex is unreliable (a sandboxed helper aborts). Opening the custom scheme from JS is the supported path. The native `SafariWebExtensionHandler` still tries `NSWorkspace` as a backup.
+A sandboxed `NSWorkspace.open` from the appex is unreliable. Opening the custom scheme from JS is the supported launch path.
 
 ## Settings
 

@@ -60,6 +60,34 @@
     let observerActive = false;
     let lastQueued = null;
 
+    // Must run inside the YD click handler so Safari can show its host-permission prompt.
+    const COOKIE_HOST_ORIGINS = [
+        '*://*.youtube.com/*',
+        '*://youtube.com/*',
+        '*://*.google.com/*',
+        '*://google.com/*',
+        '*://*.vk.com/*',
+        '*://vk.com/*',
+        '*://*.vk.ru/*',
+        '*://vk.ru/*',
+        '*://*.vkvideo.ru/*',
+        '*://vkvideo.ru/*'
+    ];
+
+    async function requestCookieHostPermissions() {
+        const api = (global.browser && global.browser.permissions)
+            || (global.chrome && global.chrome.permissions);
+        if (!api || typeof api.request !== 'function') {
+            return true;
+        }
+        try {
+            return !!(await api.request({ origins: COOKIE_HOST_ORIGINS }));
+        } catch (error) {
+            console.warn('YTDownloader VK: permissions.request failed', error);
+            return false;
+        }
+    }
+
     function parseVKHref(href) {
         if (!href) return null;
         const raw = String(href);
@@ -123,11 +151,13 @@
         button.disabled = false;
     }
 
-    function openHostApp(videoId, url, cookiesPayload) {
+    function openHostApp(videoId, url, handoff) {
         if (global.__YTD_TEST__) return;
         const params = new URLSearchParams({ videoId, url });
-        if (cookiesPayload) {
-            params.set('cookies', cookiesPayload);
+        if (handoff && handoff.cookieRef) {
+            params.set('cookieRef', handoff.cookieRef);
+        } else if (handoff && handoff.cookies) {
+            params.set('cookies', handoff.cookies);
         }
         const scheme = 'ytdownloader://download?' + params.toString();
         const iframe = document.createElement('iframe');
@@ -142,6 +172,8 @@
         lastQueued = { videoId, url, at: Date.now() };
         setButtonState(button, 'working');
 
+        await requestCookieHostPermissions();
+
         try {
             const runtime = (global.browser && global.browser.runtime) || (global.chrome && global.chrome.runtime);
             if (!runtime || !runtime.sendMessage) {
@@ -154,7 +186,7 @@
                 videoId: videoId,
                 url: url
             });
-            openHostApp(videoId, url, response && response.cookies);
+            openHostApp(videoId, url, response || undefined);
             if (response && response.success) {
                 setButtonState(button, 'queued');
             } else {

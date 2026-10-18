@@ -10,13 +10,26 @@ public enum CookieFailureKind: Equatable, Sendable {
     case cookiesInsufficient
 }
 
+/// Primary button action for the native cookie-failure alert.
+public enum CookieFailurePrimaryAction: Equatable, Sendable {
+    case none
+    case openSafariExtensionSettings
+    case openFullDiskAccessSettings
+}
+
 /// User-facing copy for queue status + NSAlert (no cookie values).
 public struct CookieFailureGuidance: Equatable, Sendable {
     public let kind: CookieFailureKind
     public let statusText: String
     public let alertTitle: String
     public let alertMessage: String
-    public let showsOpenSettings: Bool
+    public let primaryButtonTitle: String?
+    public let primaryAction: CookieFailurePrimaryAction
+
+    /// True when the alert offers a settings deep-link (plus Cancel).
+    public var showsOpenSettings: Bool {
+        primaryAction != .none
+    }
 
     public init(kind: CookieFailureKind) {
         self.kind = kind
@@ -25,33 +38,34 @@ public struct CookieFailureGuidance: Equatable, Sendable {
             statusText = "Allow Full Disk Access for Safari cookies (Settings → Privacy)"
             alertTitle = "Full Disk Access Required"
             alertMessage = """
-            This video needs sign-in cookies. YTDownloader could not read Safari’s cookie store because Full Disk Access is not granted (the cookie database is TCC-protected).
+            This video needs sign-in cookies. YTDownloader could not read Safari’s cookie store because Full Disk Access is not granted.
 
-            Prefer: use the Safari extension — when prompted, allow cookie access for YouTube/VK, then click YD again while signed in.
+            Prefer: click YD in Safari, allow cookie access when prompted, then retry while signed in.
 
             Fallback: System Settings → Privacy & Security → Full Disk Access → enable YTDownloader, then restart the app.
             """
-            showsOpenSettings = true
+            primaryButtonTitle = "Open Privacy Settings"
+            primaryAction = .openFullDiskAccessSettings
         case .extensionCookiesUnavailable:
             statusText = "Allow Safari cookie access for the extension, then retry while signed in"
-            alertTitle = "Cookies Required"
+            alertTitle = "Allow Cookie Access in Safari"
             alertMessage = """
-            This video needs you to be signed in. The Safari extension should send cookies with the download (Safari will ask for cookie permission).
+            This video needs you to be signed in. Click YD again on the video page — Safari should ask for access to YouTube, Google, or VK cookies. Choose Allow, then click YD once more while signed in.
 
-            Make sure you are signed in to YouTube or VK in Safari, allow cookie access when prompted, then click YD again.
-
-            Alternatively enable Cookie Mode → Safari and grant Full Disk Access in System Settings.
+            If Safari never prompts: open Safari Extension Settings, select YTDownloader, allow youtube.com (and google.com for YouTube), then click YD again.
             """
-            showsOpenSettings = true
+            primaryButtonTitle = "Open Safari Extension Settings"
+            primaryAction = .openSafariExtensionSettings
         case .cookiesInsufficient:
             statusText = "Sign in to the site in Safari, allow extension cookies, then retry"
             alertTitle = "Sign-In Still Required"
             alertMessage = """
             Cookies were provided but the download still needs a signed-in session (or the cookies were incomplete).
 
-            Sign in to YouTube or VK in Safari, confirm the extension may access cookies, then click YD again.
+            Sign in to YouTube or VK in Safari, click YD, allow cookie access if prompted, then retry.
             """
-            showsOpenSettings = false
+            primaryButtonTitle = nil
+            primaryAction = .none
         }
     }
 }
@@ -59,6 +73,10 @@ public struct CookieFailureGuidance: Equatable, Sendable {
 public enum CookieAccessDiagnoser {
     public static let fullDiskAccessSettingsURL =
         "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+
+    /// Opens Safari’s Extensions pane when supported.
+    public static let safariExtensionSettingsURL =
+        "x-apple.systempreferences:com.apple.Safari-Settings.extension"
 
     /// Candidate Safari cookie DB paths (Containers store is TCC-protected).
     public static var safariCookieDatabasePaths: [URL] {

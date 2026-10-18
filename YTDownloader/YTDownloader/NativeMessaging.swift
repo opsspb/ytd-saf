@@ -5,7 +5,7 @@ import YTDownloaderCore
 class NativeMessaging: ObservableObject {
     static let shared = NativeMessaging()
 
-    private var pending: [(videoId: String, url: String, cookies: String?)] = []
+    private var pending: [(videoId: String, url: String, cookiesPayload: String?)] = []
     private var manager: DownloadManager?
 
     private init() {
@@ -33,9 +33,18 @@ class NativeMessaging: ObservableObject {
             Task { @MainActor in
                 AppWindowController.shared.showSettings()
             }
-        case .download(let videoId, let url, let cookies):
-            enqueue(videoId: videoId, url: url, cookies: cookies)
+        case .download(let videoId, let url, let cookies, let cookieRef):
+            let payload = resolveCookiesPayload(cookies: cookies, cookieRef: cookieRef)
+            enqueue(videoId: videoId, url: url, cookiesPayload: payload)
         }
+    }
+
+    /// App Group `cookieRef` → raw Netscape for DownloadManager; else legacy URL base64url payload.
+    private func resolveCookiesPayload(cookies: String?, cookieRef: String?) -> String? {
+        SharedCookieStore.resolveNetscapePayload(
+            cookieRef: cookieRef,
+            cookiesURLPayload: cookies
+        )
     }
 
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, replyEvent: NSAppleEventDescriptor) {
@@ -46,13 +55,13 @@ class NativeMessaging: ObservableObject {
         handle(url: url)
     }
 
-    private func enqueue(videoId: String, url: String, cookies: String?) {
+    private func enqueue(videoId: String, url: String, cookiesPayload: String?) {
         if let manager {
             Task { @MainActor in
-                manager.addDownload(videoId: videoId, url: url, cookiesPayload: cookies)
+                manager.addDownload(videoId: videoId, url: url, cookiesPayload: cookiesPayload)
             }
         } else {
-            pending.append((videoId, url, cookies))
+            pending.append((videoId, url, cookiesPayload))
         }
     }
 
@@ -62,7 +71,11 @@ class NativeMessaging: ObservableObject {
         pending.removeAll()
         Task { @MainActor in
             for item in items {
-                manager.addDownload(videoId: item.videoId, url: item.url, cookiesPayload: item.cookies)
+                manager.addDownload(
+                    videoId: item.videoId,
+                    url: item.url,
+                    cookiesPayload: item.cookiesPayload
+                )
             }
         }
     }
