@@ -83,7 +83,12 @@ final class SharedCookieStoreTests: XCTestCase {
     func testRawNetscapeAcceptedByPayloadDecoder() {
         let raw = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\traw"
         XCTAssertTrue(ExtensionCookiePayload.looksLikeNetscape(raw))
-        XCTAssertEqual(ExtensionCookiePayload.netscapeText(fromURLPayload: raw), raw)
+        let normalized = ExtensionCookiePayload.netscapeText(fromURLPayload: raw)
+        XCTAssertNotNil(normalized)
+        XCTAssertTrue(normalized!.hasPrefix("# Netscape HTTP Cookie File"))
+        XCTAssertTrue(normalized!.contains("SID\traw"))
+        // Expiry 0 session cookies are rewritten to a future timestamp.
+        XCTAssertFalse(normalized!.contains("\t0\tSID\t"))
     }
 
     func testContainerUnavailableWithoutAppGroup() {

@@ -6,17 +6,26 @@ public struct ErrorClassifier {
     /// Classify error from yt-dlp output
     public func classifyError(from output: String) -> DownloadError {
         let lowercased = output.lowercased()
+        let errorLine = YTDLPDiagnostics.lastErrorLine(in: output) ?? output
 
         // Cookie DB / TCC failures before treating as a generic unknown.
         if CookieAccessDiagnoser.looksLikeCookieStorePermissionError(output) {
             return .fullDiskAccessRequired
+        }
+
+        // Bot / captcha before generic "sign in" (YouTube: "Sign in to confirm you're not a bot").
+        if containsAny(lowercased, [
+            "confirm you're not a bot", "confirm you are not a bot",
+            "captcha", "капча", "каптча", "не робот"
+        ]) {
+            return .captchaRequired
         }
         
         if containsAny(lowercased, [
             "sign in", "login", "log in", "registered users",
             "войдите", "войти", "авторизуйт", "авторизац", "зарегистрир", "логин"
         ]) {
-            return .cookiesRequired
+            return .cookiesRequired(errorLine)
         }
 
         if containsAny(lowercased, [
@@ -30,13 +39,6 @@ public struct ErrorClassifier {
             "members-only", "members only", "available to members", "join this channel"
         ]) {
             return .membersOnly
-        }
-
-        if containsAny(lowercased, [
-            "captcha", "confirm you're not a bot", "confirm you are not a bot",
-            "капча", "каптча", "не робот"
-        ]) {
-            return .captchaRequired
         }
 
         if containsAny(lowercased, ["429", "too many requests", "слишком много запросов", "418"]) {
@@ -57,7 +59,7 @@ public struct ErrorClassifier {
             "таймаут", "истекло время", "не удалось подключиться",
             "ссылка истекла", "url has expired", "expired"
         ]) {
-            return .networkError(output)
+            return .networkError(errorLine)
         }
 
         if containsAny(lowercased, [
@@ -71,7 +73,7 @@ public struct ErrorClassifier {
             "requested format is not available", "format is not available",
             "формат недоступен", "запрошенный формат"
         ]) {
-            return .downloadFailed(output)
+            return .downloadFailed(errorLine)
         }
 
         if containsAny(lowercased, [
@@ -82,7 +84,7 @@ public struct ErrorClassifier {
             return .unsupportedMedia
         }
 
-        return .unknown(output)
+        return .unknown(errorLine)
     }
 
     private func containsAny(_ text: String, _ needles: [String]) -> Bool {

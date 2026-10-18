@@ -455,7 +455,8 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     case noSuitableFormats
     case downloadFailed(String)
     case mergeFailed(String)
-    case cookiesRequired
+    /// Associated string is yt-dlp stderr (or last ERROR line) for queue details.
+    case cookiesRequired(String)
     case ageRestricted
     case membersOnly
     case captchaRequired
@@ -514,10 +515,16 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .ytdlpNotFound, .ffmpegNotFound, .invalidURL, .noSuitableFormats,
-             .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired,
+             .ageRestricted, .membersOnly, .captchaRequired,
              .fullDiskAccessRequired,
              .forbidden, .tooManyRequests, .unsupportedMedia, .cancelled:
             return shortMessage
+        case .cookiesRequired(let detail):
+            if detail.isEmpty { return shortMessage }
+            if let line = YTDLPDiagnostics.lastErrorLine(in: detail) {
+                return "\(shortMessage)\n\(line)"
+            }
+            return "\(shortMessage)\n\(detail)"
         case .fetchInfoFailed(let msg):
             return "Failed to fetch video info: \(msg)"
         case .downloadFailed(let msg):
@@ -530,6 +537,19 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Could not install yt-dlp/ffmpeg: \(msg)"
         case .unknown(let msg):
             return "Unknown error: \(msg)"
+        }
+    }
+
+    /// Raw yt-dlp stderr / detail when the error carried one.
+    public var technicalDetail: String? {
+        switch self {
+        case .cookiesRequired(let detail) where !detail.isEmpty:
+            return detail
+        case .fetchInfoFailed(let msg), .downloadFailed(let msg), .mergeFailed(let msg),
+             .networkError(let msg), .bootstrapFailed(let msg), .unknown(let msg):
+            return msg
+        default:
+            return nil
         }
     }
 

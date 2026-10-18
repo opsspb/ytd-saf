@@ -21,12 +21,15 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
                 return
             }
 
+            // Prefer uncapped `netscapeFull` from the extension; fall back to URL-sized `cookies`.
+            let netscapeFull = message?["netscapeFull"] as? String
             let cookiesPayload = message?["cookies"] as? String
             var cookieRef: String?
             var responseCookies: String?
 
-            if let cookiesPayload, !cookiesPayload.isEmpty,
-               let netscape = ExtensionCookiePayload.netscapeText(fromURLPayload: cookiesPayload) {
+            let netscapeSource = [netscapeFull, cookiesPayload].compactMap { $0 }.first { !$0.isEmpty }
+            if let netscapeSource,
+               let netscape = ExtensionCookiePayload.netscapeText(fromURLPayload: netscapeSource) {
                 do {
                     cookieRef = try SharedCookieStore.writeNetscape(
                         videoId: videoId,

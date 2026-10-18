@@ -367,7 +367,8 @@ class DownloadManager: ObservableObject {
                 item: item,
                 original: error,
                 hadExtensionCookies: false,
-                usedCookies: false
+                usedCookies: false,
+                netscapeText: nil
             )
             return
         }
@@ -398,7 +399,8 @@ class DownloadManager: ObservableObject {
                 item: item,
                 original: error,
                 hadExtensionCookies: false,
-                usedCookies: false
+                usedCookies: false,
+                netscapeText: netscape
             )
             return
         }
@@ -419,7 +421,8 @@ class DownloadManager: ObservableObject {
                 original: downloadError,
                 hadExtensionCookies: hasExtensionCookies,
                 usedCookies: true,
-                stderr: downloadError.errorDescription
+                stderr: downloadError.technicalDetail ?? downloadError.errorDescription,
+                netscapeText: netscape
             )
         }
     }
@@ -429,17 +432,22 @@ class DownloadManager: ObservableObject {
         original: DownloadError,
         hadExtensionCookies: Bool,
         usedCookies: Bool,
-        stderr: String? = nil
+        stderr: String? = nil,
+        netscapeText: String? = nil
     ) {
         let guidance = CookieAccessDiagnoser.guidance(
             hadExtensionCookies: hadExtensionCookies,
             cookieMode: settings.cookieMode,
             usedCookies: usedCookies,
             lastError: original,
-            stderr: stderr
+            stderr: stderr,
+            netscapeText: netscapeText
         )
         let status: String
         if guidance.kind == .fullDiskAccessRequired {
+            status = guidance.statusText
+        } else if guidance.kind == .cookiesInsufficient {
+            // Prefer concrete yt-dlp ERROR / missing-cookie detail over the generic title.
             status = guidance.statusText
         } else if original.requiresCookies {
             status = guidance.statusText

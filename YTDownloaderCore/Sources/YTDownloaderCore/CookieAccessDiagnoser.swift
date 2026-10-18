@@ -31,7 +31,11 @@ public struct CookieFailureGuidance: Equatable, Sendable {
         primaryAction != .none
     }
 
-    public init(kind: CookieFailureKind) {
+    public init(
+        kind: CookieFailureKind,
+        missingAuthCookies: [String] = [],
+        lastErrorLine: String? = nil
+    ) {
         self.kind = kind
         switch kind {
         case .fullDiskAccessRequired:
@@ -57,16 +61,54 @@ public struct CookieFailureGuidance: Equatable, Sendable {
             primaryButtonTitle = "Open Safari Extension Settings"
             primaryAction = .openSafariExtensionSettings
         case .cookiesInsufficient:
-            statusText = "Sign in to the site in Safari, allow extension cookies, then retry"
+            let detail = Self.insufficientDetail(
+                missingAuthCookies: missingAuthCookies,
+                lastErrorLine: lastErrorLine
+            )
+            statusText = detail.status
             alertTitle = "Sign-In Still Required"
-            alertMessage = """
-            Cookies were provided but the download still needs a signed-in session (or the cookies were incomplete).
-
-            Sign in to YouTube or VK in Safari, click YD, allow cookie access if prompted, then retry.
-            """
+            alertMessage = detail.alert
             primaryButtonTitle = nil
             primaryAction = .none
         }
+    }
+
+    private static func insufficientDetail(
+        missingAuthCookies: [String],
+        lastErrorLine: String?
+    ) -> (status: String, alert: String) {
+        var statusParts: [String] = []
+        var alertParts: [String] = []
+
+        if !missingAuthCookies.isEmpty {
+            let list = missingAuthCookies.joined(separator: ", ")
+            statusParts.append("Missing auth cookies: \(list)")
+            alertParts.append(
+                "The cookie jar from Safari is missing key auth cookies (\(list)). Sign in to YouTube in Safari, click YD, allow cookie access if prompted, then retry."
+            )
+        }
+
+        if let lastErrorLine, !lastErrorLine.isEmpty {
+            statusParts.append(lastErrorLine)
+            alertParts.append("yt-dlp reported:\n\(lastErrorLine)")
+        }
+
+        if statusParts.isEmpty {
+            statusParts.append("Sign in to the site in Safari, allow extension cookies, then retry")
+            alertParts.append(
+                """
+                Cookies were provided but the download still needs a signed-in session (or the cookies were incomplete).
+
+                Sign in to YouTube or VK in Safari, click YD, allow cookie access if prompted, then retry.
+                """
+            )
+        } else if missingAuthCookies.isEmpty {
+            alertParts.append(
+                "Cookies were provided but yt-dlp still rejected the session. Sign in to the site in Safari, click YD again, then retry."
+            )
+        }
+
+        return (statusParts.joined(separator: "\n"), alertParts.joined(separator: "\n\n"))
     }
 }
 
@@ -171,17 +213,31 @@ public enum CookieAccessDiagnoser {
         usedCookies: Bool,
         lastError: DownloadError?,
         stderr: String? = nil,
-        safariStoreReadable: Bool? = nil
+        safariStoreReadable: Bool? = nil,
+        netscapeText: String? = nil
     ) -> CookieFailureGuidance {
-        CookieFailureGuidance(
-            kind: classify(
-                hadExtensionCookies: hadExtensionCookies,
-                cookieMode: cookieMode,
-                usedCookies: usedCookies,
-                lastError: lastError,
-                stderr: stderr,
-                safariStoreReadable: safariStoreReadable
-            )
+        let kind = classify(
+            hadExtensionCookies: hadExtensionCookies,
+            cookieMode: cookieMode,
+            usedCookies: usedCookies,
+            lastError: lastError,
+            stderr: stderr,
+            safariStoreReadable: safariStoreReadable
+        )
+        let missing: [String]
+        if let netscapeText {
+            missing = YTDLPDiagnostics.missingAuthCookieNames(inNetscape: netscapeText)
+        } else {
+            missing = []
+        }
+        let errorLine = stderr.flatMap { YTDLPDiagnostics.lastErrorLine(in: $0) }
+            ?? lastError.flatMap { error in
+                error.errorDescription.flatMap { YTDLPDiagnostics.lastErrorLine(in: $0) }
+            }
+        return CookieFailureGuidance(
+            kind: kind,
+            missingAuthCookies: kind == .cookiesInsufficient ? missing : [],
+            lastErrorLine: kind == .cookiesInsufficient ? errorLine : nil
         )
     }
 }

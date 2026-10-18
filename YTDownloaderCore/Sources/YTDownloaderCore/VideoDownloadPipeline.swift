@@ -38,17 +38,19 @@ public struct VideoDownloadPipeline: Sendable {
     public func listFormats(url: String) throws -> String {
         let result = try run(ytdlpPath, arguments: ["-F", "--no-warnings", url])
         if result.status != 0 {
-            throw ErrorClassifier().classifyError(from: result.stderr)
+            throw ErrorClassifier().classifyError(from: result.stderr.isEmpty ? result.stdout : result.stderr)
         }
         return result.stdout
     }
 
     public func fetchInfo(url: String, useCookies: Bool) throws -> YTDLPInfo {
-        var args = ["-J", "--no-warnings", url]
+        var args = ["-J", "--no-warnings"]
+        args.append(contentsOf: Self.youtubeExtractorArgs(for: url, useCookies: useCookies))
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
-        let result = try run(ytdlpPath, arguments: args)
+        args.append(url)
+        let result = try run(ytdlpPath, arguments: args, netscapeForLog: useCookies ? cookieFileNetscape() : nil)
         if result.status != 0 {
-            throw ErrorClassifier().classifyError(from: result.stderr)
+            throw ErrorClassifier().classifyError(from: result.stderr.isEmpty ? result.stdout : result.stderr)
         }
         return try JSONDecoder().decode(YTDLPInfo.self, from: Data(result.stdout.utf8))
     }
@@ -105,12 +107,18 @@ public struct VideoDownloadPipeline: Sendable {
             "--no-part"
         ]
         args.append(contentsOf: YTDLPProgress.progressCLIArgs)
-        args.append(url)
+        args.append(contentsOf: Self.youtubeExtractorArgs(for: url, useCookies: useCookies))
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        args.append(url)
         let session = ProgressSessionBox()
-        let result = try run(ytdlpPath, arguments: args, onOutput: { line in
-            Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: onTransfer, onMerging: nil)
-        })
+        let result = try run(
+            ytdlpPath,
+            arguments: args,
+            netscapeForLog: useCookies ? cookieFileNetscape() : nil,
+            onOutput: { line in
+                Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: onTransfer, onMerging: nil)
+            }
+        )
         if let done = session.finish() {
             onTransfer?(done)
             onProgress?(1)
@@ -291,12 +299,18 @@ public struct VideoDownloadPipeline: Sendable {
             "--force-overwrites"
         ]
         args.append(contentsOf: YTDLPProgress.progressCLIArgs)
-        args.append(url)
+        args.append(contentsOf: Self.youtubeExtractorArgs(for: url, useCookies: useCookies))
         args.append(contentsOf: cookieArguments(useCookies: useCookies))
+        args.append(url)
         let session = ProgressSessionBox()
-        let result = try run(ytdlpPath, arguments: args, onOutput: { line in
-            Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: onTransfer, onMerging: onMerging)
-        })
+        let result = try run(
+            ytdlpPath,
+            arguments: args,
+            netscapeForLog: useCookies ? cookieFileNetscape() : nil,
+            onOutput: { line in
+                Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: onTransfer, onMerging: onMerging)
+            }
+        )
         if result.status != 0 {
             let output = combinedOutput(result)
             let lower = output.lowercased()
@@ -607,42 +621,50 @@ public struct VideoDownloadPipeline: Sendable {
             "--no-simulate"
         ]
         args.append(contentsOf: YTDLPProgress.progressCLIArgs)
+        args.append(contentsOf: Self.youtubeExtractorArgs(for: url, useCookies: useCookies))
+        args.append(contentsOf: cookieArguments(useCookies: useCookies))
         args.append(contentsOf: ["--print", YTDLPOutputParser.metaPrintTemplate(), url])
         let aria2c = useExternalDownloader ? aria2cPath : nil
         args.insert(contentsOf: adapter.downloadArgs(aria2cPath: aria2c), at: args.count - 1)
-        args.append(contentsOf: cookieArguments(useCookies: useCookies))
         let workDir = (outputPath as NSString).deletingLastPathComponent
         let expected = LockedBytes()
         let session = ProgressSessionBox()
-        let result = try run(ytdlpPath, arguments: args, cancellation: cancellation, onOutput: { line in
-            captured.append(line)
-            if let meta = YTDLPOutputParser.parseMeta(from: line) {
-                onMeta?(meta)
+        let result = try run(
+            ytdlpPath,
+            arguments: args,
+            cancellation: cancellation,
+            netscapeForLog: useCookies ? cookieFileNetscape() : nil,
+            onOutput: { line in
+                captured.append(line)
+                if let meta = YTDLPOutputParser.parseMeta(from: line) {
+                    onMeta?(meta)
+                }
+                Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: { transfer in
+                    if let bytes = transfer.expectedBytes { expected.set(bytes) }
+                    onTransfer?(transfer)
+                }, onMerging: onMerging)
+            },
+            onTick: {
+                let wrote = YTDLPProgress.allocatedBytes(in: workDir)
+                guard wrote > 0 else { return }
+                let total = expected.value
+                let stream = YTDLPProgress.activeStream(in: workDir)
+                if total > 0 {
+                    let fraction = min(Double(wrote) / Double(total), 0.99)
+                    let transfer = session.noteDisk(
+                        fraction: fraction,
+                        wrote: wrote,
+                        total: total,
+                        stream: stream,
+                        sizeText: bytePair(wrote, total)
+                    )
+                    onProgress?(transfer.fraction ?? fraction)
+                    onTransfer?(transfer)
+                } else if wrote > 1_000_000 {
+                    onTransfer?(TransferProgress(downloadedBytes: wrote, stream: stream == .unknown ? .video : stream))
+                }
             }
-            Self.emitProgress(line: line, session: session, onProgress: onProgress, onTransfer: { transfer in
-                if let bytes = transfer.expectedBytes { expected.set(bytes) }
-                onTransfer?(transfer)
-            }, onMerging: onMerging)
-        }, onTick: {
-            let wrote = YTDLPProgress.allocatedBytes(in: workDir)
-            guard wrote > 0 else { return }
-            let total = expected.value
-            let stream = YTDLPProgress.activeStream(in: workDir)
-            if total > 0 {
-                let fraction = min(Double(wrote) / Double(total), 0.99)
-                let transfer = session.noteDisk(
-                    fraction: fraction,
-                    wrote: wrote,
-                    total: total,
-                    stream: stream,
-                    sizeText: bytePair(wrote, total)
-                )
-                onProgress?(transfer.fraction ?? fraction)
-                onTransfer?(transfer)
-            } else if wrote > 1_000_000 {
-                onTransfer?(TransferProgress(downloadedBytes: wrote, stream: stream == .unknown ? .video : stream))
-            }
-        })
+        )
         let output = combinedOutput(result) + "\n" + captured.value
         if result.status != 0 {
             let lower = output.lowercased()
@@ -728,18 +750,30 @@ public struct VideoDownloadPipeline: Sendable {
 
     private func cookieArguments(useCookies: Bool) -> [String] {
         guard useCookies else { return [] }
+        var args: [String] = []
         // Per-download Netscape file (extension cookies) wins over Safari store.
         if let cookieFilePath, !cookieFilePath.isEmpty {
-            return ["--cookies", cookieFilePath]
+            args.append(contentsOf: ["--cookies", cookieFilePath])
+        } else {
+            switch cookieMode {
+            case .safari:
+                args.append(contentsOf: ["--cookies-from-browser", "safari"])
+            case .file, .none:
+                break
+            }
         }
-        switch cookieMode {
-        case .safari:
-            return ["--cookies-from-browser", "safari"]
-        case .file:
-            return []
-        case .none:
-            return []
-        }
+        return args
+    }
+
+    /// YouTube player clients that work well with browser cookies (no hardcoded user data).
+    static func youtubeExtractorArgs(for url: String, useCookies: Bool) -> [String] {
+        guard useCookies, isYouTubeURL(url) else { return [] }
+        return ["--extractor-args", "youtube:player_client=default,web_safari"]
+    }
+
+    static func isYouTubeURL(_ url: String) -> Bool {
+        let lower = url.lowercased()
+        return lower.contains("youtube.com") || lower.contains("youtu.be")
     }
 
     private struct ProcessResult {
@@ -748,10 +782,21 @@ public struct VideoDownloadPipeline: Sendable {
         let status: Int32
     }
 
+    private func cookieFileNetscape() -> String? {
+        guard let cookieFilePath, !cookieFilePath.isEmpty,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: cookieFilePath)),
+              let text = String(data: data, encoding: .utf8),
+              !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+
     private func run(
         _ executable: String,
         arguments: [String],
         cancellation: ProcessCancellation? = nil,
+        netscapeForLog: String? = nil,
         onOutput: (@Sendable (String) -> Void)? = nil,
         onTick: (@Sendable () -> Void)? = nil
     ) throws -> ProcessResult {
@@ -764,6 +809,21 @@ public struct VideoDownloadPipeline: Sendable {
             onOutput: onOutput,
             onTick: onTick
         )
+        if executable == ytdlpPath {
+            let cookiePath: String?
+            if let idx = arguments.firstIndex(of: "--cookies"), idx + 1 < arguments.count {
+                cookiePath = arguments[idx + 1]
+            } else {
+                cookiePath = nil
+            }
+            YTDLPDiagnostics.writeRunLog(
+                executable: executable,
+                arguments: arguments,
+                stderr: result.stderr,
+                cookieFilePath: cookiePath,
+                netscapeText: netscapeForLog
+            )
+        }
         if result.cancelled {
             throw DownloadError.cancelled
         }

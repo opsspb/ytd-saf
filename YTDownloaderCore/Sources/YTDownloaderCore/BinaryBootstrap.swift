@@ -112,21 +112,61 @@ public struct BinaryBootstrap: Sendable {
     }
 
     public func locateExisting() -> BinaryPaths? {
-        if let paths = locateInstalled() {
-            return paths
+        var candidates: [BinaryPaths] = []
+        if let installed = locateInstalled() {
+            candidates.append(installed)
         }
-        if preferHomebrew, let paths = locateHomebrew() {
-            return paths
+        if preferHomebrew, let brew = locateHomebrew() {
+            candidates.append(brew)
         }
-        return nil
+        return Self.preferNewestYTDLP(among: candidates)
+    }
+
+    /// Compare `yt-dlp --version` strings (e.g. `2026.08.19`) and keep the newest.
+    public static func preferNewestYTDLP(among candidates: [BinaryPaths]) -> BinaryPaths? {
+        guard !candidates.isEmpty else { return nil }
+        if candidates.count == 1 { return candidates[0] }
+        return candidates.max { a, b in
+            compareYTDLPVersions(version(of: a.ytdlp), version(of: b.ytdlp)) == .orderedAscending
+        }
+    }
+
+    public static func parseYTDLPVersion(_ raw: String) -> [Int] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let head = trimmed.split(whereSeparator: { $0.isWhitespace || $0 == "\n" }).first.map(String.init) ?? trimmed
+        return head.split(separator: ".").compactMap { Int($0) }
+    }
+
+    public static func compareYTDLPVersions(_ lhs: [Int], _ rhs: [Int]) -> ComparisonResult {
+        let count = max(lhs.count, rhs.count)
+        for i in 0..<count {
+            let l = i < lhs.count ? lhs[i] : 0
+            let r = i < rhs.count ? rhs[i] : 0
+            if l < r { return .orderedAscending }
+            if l > r { return .orderedDescending }
+        }
+        return .orderedSame
+    }
+
+    private static func version(of ytdlpPath: String) -> [Int] {
+        do {
+            let result = try ProcessRunner.run(
+                executable: ytdlpPath,
+                arguments: ["--version"],
+                timeout: 4
+            )
+            guard !result.timedOut, result.status == 0 else { return [] }
+            return parseYTDLPVersion(result.stdout.isEmpty ? result.stderr : result.stdout)
+        } catch {
+            return []
+        }
     }
 
     public func setup() async throws -> BinaryPaths {
         try FileManager.default.createDirectory(at: binariesDirectory, withIntermediateDirectories: true)
 
-        report("Checking installed binaries...", 0.1)
-        if var paths = locateInstalled() {
-            _ = quickVersionCheck(paths, timeout: 4)
+        report("Checking installed / Homebrew binaries...", 0.1)
+        if var paths = locateExisting(), quickVersionCheck(paths, timeout: 4) {
             if paths.aria2c == nil {
                 report("Downloading aria2c...", 0.5)
                 if let aria2c = await installAria2cBestEffort() {
@@ -139,25 +179,7 @@ public struct BinaryBootstrap: Sendable {
                     )
                 }
             }
-            report("Using installed binaries", 1.0)
-            return paths
-        }
-
-        report("Checking for Homebrew binaries...", 0.2)
-        if preferHomebrew, var paths = locateHomebrew(), quickVersionCheck(paths, timeout: 4) {
-            if paths.aria2c == nil {
-                report("Downloading aria2c...", 0.5)
-                if let aria2c = await installAria2cBestEffort() {
-                    paths = BinaryPaths(
-                        ytdlp: paths.ytdlp,
-                        ffmpeg: paths.ffmpeg,
-                        ffprobe: paths.ffprobe,
-                        source: paths.source,
-                        aria2c: aria2c
-                    )
-                }
-            }
-            report("Using Homebrew binaries", 1.0)
+            report(paths.source == .homebrew ? "Using Homebrew binaries" : "Using installed binaries", 1.0)
             return paths
         }
 

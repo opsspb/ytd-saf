@@ -11,11 +11,36 @@ final class ErrorClassifierTests: XCTestCase {
     
     func testClassifyCookiesRequired() {
         let error1 = classifier.classifyError(from: "ERROR: Sign in to confirm your age")
-        XCTAssertEqual(error1, .cookiesRequired)
+        if case .cookiesRequired(let detail) = error1 {
+            XCTAssertTrue(detail.contains("Sign in to confirm your age"))
+        } else {
+            XCTFail("Expected cookiesRequired, got \(error1)")
+        }
         XCTAssertTrue(error1.requiresCookies)
         
         let error2 = classifier.classifyError(from: "ERROR: This video requires login")
-        XCTAssertEqual(error2, .cookiesRequired)
+        if case .cookiesRequired = error2 {
+        } else {
+            XCTFail("Expected cookiesRequired, got \(error2)")
+        }
+    }
+
+    func testCaptchaBeatsGenericSignIn() {
+        let error = classifier.classifyError(
+            from: "ERROR: [youtube] abc: Sign in to confirm you're not a bot"
+        )
+        XCTAssertEqual(error, .captchaRequired)
+        XCTAssertTrue(error.requiresCookies)
+    }
+
+    func testCookiesRequiredPreservesLastErrorLineInDescription() {
+        let stderr = "WARNING: x\nERROR: [youtube] vid: Please sign in\n"
+        let error = classifier.classifyError(from: stderr)
+        if case .cookiesRequired = error {
+            XCTAssertTrue(error.errorDescription?.contains("ERROR: [youtube] vid: Please sign in") == true)
+        } else {
+            XCTFail("Expected cookiesRequired, got \(error)")
+        }
     }
     
     func testClassifyAgeRestricted() {
@@ -93,9 +118,18 @@ final class ErrorClassifierTests: XCTestCase {
     }
 
     func testClassifyRussianAndVKErrors() {
-        XCTAssertEqual(classifier.classifyError(from: "ERROR: [vk] Войдите, чтобы просмотреть видео"), .cookiesRequired)
-        XCTAssertEqual(classifier.classifyError(from: "Video -1_2 is only available for registered users"), .cookiesRequired)
-        XCTAssertEqual(classifier.classifyError(from: "Please log in or <a>sign up</a>"), .cookiesRequired)
+        if case .cookiesRequired = classifier.classifyError(from: "ERROR: [vk] Войдите, чтобы просмотреть видео") {
+        } else {
+            XCTFail("expected cookiesRequired for Russian sign-in")
+        }
+        if case .cookiesRequired = classifier.classifyError(from: "Video -1_2 is only available for registered users") {
+        } else {
+            XCTFail("expected cookiesRequired for registered users")
+        }
+        if case .cookiesRequired = classifier.classifyError(from: "Please log in or <a>sign up</a>") {
+        } else {
+            XCTFail("expected cookiesRequired for log in")
+        }
         XCTAssertEqual(classifier.classifyError(from: "Видео ограничено по возрасту"), .ageRestricted)
         XCTAssertEqual(classifier.classifyError(from: "ERROR: капча, подтвердите что вы не робот"), .captchaRequired)
         XCTAssertEqual(classifier.classifyError(from: "HTTP Error 403: доступ запрещен"), .forbidden)
