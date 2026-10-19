@@ -2,7 +2,7 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, cursor/* ]
+    branches: [ main, cursor/*, v2-* ]
   pull_request:
     branches: [ main ]
 
@@ -23,18 +23,22 @@ jobs:
         swift test --parallel
 
     - name: Run content script tests
-      run: swift Scripts/run-content-tests.swift
+      run: |
+        swift Scripts/run-content-tests.swift
+        swift Scripts/run-content-tests.swift YTDownloader/YTDownloaderExtension/Resources/vk.test.html
     
     - name: Build app
       run: |
+        # No signing identity on CI / agent accounts: override team signing from the project.
         xcodebuild clean build \
           -project YTDownloader.xcodeproj \
           -scheme YTDownloader \
           -configuration Debug \
           -destination 'platform=macOS' \
-          CODE_SIGN_IDENTITY="" \
+          CODE_SIGN_IDENTITY=- \
           CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_ALLOWED=NO \
+          DEVELOPMENT_TEAM=
 
   test-core:
     runs-on: macos-14

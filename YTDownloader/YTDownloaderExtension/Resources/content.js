@@ -53,19 +53,53 @@
         '#flexible-item-buttons',
         '#actions #top-level-buttons-computed',
         '#top-level-buttons-computed',
-        '#menu-container ytd-menu-renderer #top-level-buttons-computed'
+        '#menu-container ytd-menu-renderer #top-level-buttons-computed',
+        'ytd-menu-renderer.ytd-watch-metadata #top-level-buttons-computed',
+        '#actions ytd-menu-renderer'
     ];
 
     const WATCH_ACTION_ANCHORS = [
         'segmented-like-dislike-button-view-model',
         'like-button-view-model',
+        'button-view-model',
         'yt-button-view-model',
         'button[aria-label*="Share"]',
-        'button[aria-label*="Поделиться"]'
+        'button[aria-label*="Поделиться"]',
+        'button[aria-label*="Save"]',
+        'button[aria-label*="Сохранить"]'
     ];
 
     let observerActive = false;
     let lastQueued = null;
+
+    // Must be requested inside the YD click handler (user gesture) so Safari shows
+    // its standard host-permission prompt; background cookies.getAll is empty otherwise.
+    const COOKIE_HOST_ORIGINS = [
+        '*://*.youtube.com/*',
+        '*://youtube.com/*',
+        '*://*.google.com/*',
+        '*://google.com/*',
+        '*://*.vk.com/*',
+        '*://vk.com/*',
+        '*://*.vk.ru/*',
+        '*://vk.ru/*',
+        '*://*.vkvideo.ru/*',
+        '*://vkvideo.ru/*'
+    ];
+
+    async function requestCookieHostPermissions() {
+        const api = (global.browser && global.browser.permissions)
+            || (global.chrome && global.chrome.permissions);
+        if (!api || typeof api.request !== 'function') {
+            return true;
+        }
+        try {
+            return !!(await api.request({ origins: COOKIE_HOST_ORIGINS }));
+        } catch (error) {
+            console.warn('YTDownloader: permissions.request failed', error);
+            return false;
+        }
+    }
 
     function getVideoId() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -97,13 +131,28 @@
         return typeof href === 'string' && href.includes('/shorts/');
     }
 
+    function downloadIconSvg() {
+        return '<svg class="ytd-watch-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+            + '<path fill="currentColor" d="M12 4a1 1 0 0 1 1 1v8.59l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42L11 13.59V5a1 1 0 0 1 1-1Zm-7 14a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1Z"/>'
+            + '</svg>';
+    }
+
+    function paintWatchLabel(button, text) {
+        if (!button) return;
+        if (text === 'YD') {
+            button.innerHTML = downloadIconSvg() + '<span>YD</span>';
+            return;
+        }
+        button.textContent = text;
+    }
+
     function createWatchPageButton() {
         const button = document.createElement('button');
         button.id = BUTTON_ID;
         button.type = 'button';
         button.className = 'ytd-watch-download-button';
         button.setAttribute('aria-label', 'Download with YTDownloader');
-        button.textContent = 'YD';
+        paintWatchLabel(button, 'YD');
         button.addEventListener('click', handleWatchPageClick);
         return button;
     }
@@ -126,26 +175,32 @@
         if (!button) return;
         button.dataset.ytdState = state;
         if (state === 'working') {
-            button.textContent = '…';
+            paintWatchLabel(button, '…');
             button.disabled = true;
             return;
         }
         if (state === 'queued' || state === 'done') {
-            button.textContent = '✓';
+            paintWatchLabel(button, '✓');
             button.disabled = false;
             return;
         }
         if (state === 'error') {
-            button.textContent = 'YD';
+            paintWatchLabel(button, 'YD');
             button.disabled = false;
             return;
         }
-        button.textContent = 'YD';
+        paintWatchLabel(button, 'YD');
         button.disabled = false;
     }
 
-    function openHostApp(videoId, url) {
+    function openHostApp(videoId, url, handoff) {
+        if (global.__YTD_TEST__) return;
         const params = new URLSearchParams({ videoId, url });
+        if (handoff && handoff.cookieRef) {
+            params.set('cookieRef', handoff.cookieRef);
+        } else if (handoff && handoff.cookies) {
+            params.set('cookies', handoff.cookies);
+        }
         const scheme = `ytdownloader://download?${params.toString()}`;
         const iframe = document.createElement('iframe');
         iframe.setAttribute('aria-hidden', 'true');
@@ -158,11 +213,14 @@
     async function queueDownload(button, videoId, url) {
         lastQueued = { videoId, url, at: Date.now() };
         setButtonState(button, 'working');
-        openHostApp(videoId, url);
+
+        // First await in the click stack: keep the Safari permission prompt tied to the gesture.
+        await requestCookieHostPermissions();
 
         try {
             const runtime = (global.browser && global.browser.runtime) || (global.chrome && global.chrome.runtime);
             if (!runtime || !runtime.sendMessage) {
+                openHostApp(videoId, url);
                 setButtonState(button, 'queued');
                 return;
             }
@@ -173,6 +231,9 @@
                 url: url
             });
 
+            // Backup iframe; prefer App Group cookieRef over a long cookies= URL.
+            openHostApp(videoId, url, response || undefined);
+
             if (response && response.success) {
                 setButtonState(button, 'queued');
             } else {
@@ -180,7 +241,7 @@
             }
         } catch (error) {
             console.error('YTDownloader error:', error);
-            // Scheme hand-off already ran; still mark queued.
+            openHostApp(videoId, url);
             setButtonState(button, 'queued');
         }
     }
@@ -214,6 +275,19 @@
         return null;
     }
 
+    function findShareOrSaveAnchor(row) {
+        if (!row) return null;
+        const candidates = row.querySelectorAll('button, [role="button"], yt-button-view-model, button-view-model');
+        for (const node of candidates) {
+            const label = ((node.getAttribute && node.getAttribute('aria-label')) || '')
+                + ' ' + ((node.textContent || '').trim());
+            if (/share|поделиться|save|сохранить/i.test(label) && isUsable(node)) {
+                return node;
+            }
+        }
+        return null;
+    }
+
     function insertButtonOnWatchPage() {
         const videoId = getVideoId();
         const existing = document.getElementById(BUTTON_ID);
@@ -227,12 +301,22 @@
         if (!actionsRow) return;
 
         if (existing && actionsRow.contains(existing) && isUsable(existing)) {
+            // Keep pill styling even if YouTube re-parents siblings.
+            existing.classList.add('ytd-watch-download-button');
             return;
         }
         if (existing) existing.remove();
 
         const button = createWatchPageButton();
-        actionsRow.appendChild(button);
+        const anchor = findShareOrSaveAnchor(actionsRow);
+        if (anchor && anchor.parentElement === actionsRow) {
+            // Prefer between Share and Save when Share is found first.
+            const next = anchor.nextElementSibling;
+            if (next) actionsRow.insertBefore(button, next);
+            else actionsRow.appendChild(button);
+        } else {
+            actionsRow.appendChild(button);
+        }
     }
 
     function cardAlreadyProcessed(card) {

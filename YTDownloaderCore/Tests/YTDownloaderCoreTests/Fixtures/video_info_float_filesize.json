@@ -1,0 +1,28 @@
+{
+  "id": "floatfs",
+  "title": "Float filesize",
+  "formats": [
+    {
+      "format_id": "133",
+      "ext": "mp4",
+      "width": 320,
+      "height": 240,
+      "fps": 30,
+      "vcodec": "avc1",
+      "acodec": "none",
+      "vbr": 58.5,
+      "filesize": 117495.5,
+      "filesize_approx": 117500.7,
+      "protocol": "https"
+    },
+    {
+      "format_id": "140",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "abr": 128.4,
+      "filesize": 500000.2,
+      "protocol": "https"
+    }
+  ]
+}

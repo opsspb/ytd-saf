@@ -238,6 +238,99 @@ final class FormatSelectorTests: XCTestCase {
         XCTAssertEqual(format.height, 240)
     }
 
+    /// Age-restricted / web_safari often yields HLS-only lists where audio 233/234 omit `acodec`.
+    /// Video rows in this fixture use explicit `acodec: "none"`, so separable pick still works.
+    func testHLSOnlyNullAcodecAudioIsSelectable() throws {
+        let jsonData = try loadFixture(named: "video_info_hls_only_null_acodec_audio.json")
+        let info = try JSONDecoder().decode(YTDLPInfo.self, from: jsonData)
+        let selected = try selector.selectBestFormats(from: info)
+        XCTAssertEqual(selected.video.height, 240)
+        XCTAssertTrue(selected.video.protocolName?.contains("m3u8") == true)
+        XCTAssertTrue(["233", "234"].contains(selected.audio.formatId))
+        XCTAssertNil(selected.audio.acodec)
+        XCTAssertTrue(selected.audio.hasAudio)
+        XCTAssertTrue(selected.audio.isAudioOnly)
+    }
+
+    /// Missing/null `acodec` with a video codec is *unknown audio*, not video-only.
+    /// Separable pick fails; `pickFormats` falls back to yt-dlp `bv*+ba/b` (no muxed rows here).
+    func testNullAcodecVideoIsNotTreatedAsVideoOnly() throws {
+        let formats = [
+            VideoFormat(formatId: "299", ext: "mp4", width: 1920, height: 1080, fps: 60, vcodec: "avc1", acodec: nil, vbr: 4000, protocolName: "https"),
+            VideoFormat(formatId: "140", ext: "m4a", vcodec: "none", acodec: "mp4a", abr: 128, protocolName: "https")
+        ]
+        let info = YTDLPInfo(id: "x", title: "t", formats: formats)
+        XCTAssertFalse(formats[0].isVideoOnly)
+        XCTAssertThrowsError(try selector.selectBestFormats(from: info)) { error in
+            XCTAssertEqual(error as? DownloadError, .noSuitableFormats)
+        }
+        let pick = selector.pickFormats(from: info)
+        guard case .ytDlpFallback(let spec) = pick else {
+            return XCTFail("expected yt-dlp fallback, got \(pick)")
+        }
+        XCTAssertEqual(spec, FormatSelector.ytDlpFallbackFormatSpec)
+    }
+
+    func testPickFormatsMuxedHLSOnlyPicksHighest() throws {
+        let info = try JSONDecoder().decode(YTDLPInfo.self, from: try loadFixture(named: "video_info_muxed_hls_only.json"))
+        XCTAssertThrowsError(try selector.selectBestFormats(from: info))
+        let pick = selector.pickFormats(from: info)
+        guard case .muxed(let format) = pick else {
+            return XCTFail("expected muxed pick, got \(pick)")
+        }
+        XCTAssertEqual(format.formatId, "96")
+        XCTAssertEqual(format.height, 1080)
+        XCTAssertEqual(pick.fallbackSpec, "96")
+    }
+
+    func testPickFormatsNullAcodecVideoAndAudioFallsBackToYtDlp() throws {
+        let info = try JSONDecoder().decode(
+            YTDLPInfo.self,
+            from: try loadFixture(named: "video_info_null_acodec_video_and_audio.json")
+        )
+        let pick = selector.pickFormats(from: info)
+        guard case .ytDlpFallback(let spec) = pick else {
+            return XCTFail("expected yt-dlp fallback, got \(pick)")
+        }
+        XCTAssertEqual(spec, "bv*+ba/b")
+    }
+
+    func testPickFormatsStoryboardsPlusMuxed18() throws {
+        let info = try JSONDecoder().decode(
+            YTDLPInfo.self,
+            from: try loadFixture(named: "video_info_storyboard_plus_muxed_18.json")
+        )
+        let pick = selector.pickFormats(from: info)
+        guard case .muxed(let format) = pick else {
+            return XCTFail("expected muxed 18, got \(pick)")
+        }
+        XCTAssertEqual(format.formatId, "18")
+        XCTAssertEqual(format.height, 360)
+    }
+
+    func testWebSafariMeAtTheZooFixtureStillSelectsSeparable() throws {
+        let info = try JSONDecoder().decode(
+            YTDLPInfo.self,
+            from: try loadFixture(named: "video_info_web_safari_me_at_the_zoo.json")
+        )
+        let pick = selector.pickFormats(from: info)
+        guard case .separate(let formats, _) = pick else {
+            return XCTFail("expected separable pick for public web_safari list, got \(pick)")
+        }
+        XCTAssertGreaterThanOrEqual(formats.video.height ?? 0, 144)
+        XCTAssertTrue(formats.audio.hasAudio)
+    }
+
+    func testDecodesFloatFilesizeAndSelects() throws {
+        let jsonData = try loadFixture(named: "video_info_float_filesize.json")
+        let info = try JSONDecoder().decode(YTDLPInfo.self, from: jsonData)
+        XCTAssertEqual(info.formats[0].filesize, 117496)
+        XCTAssertEqual(info.formats[1].filesize, 500000)
+        let selected = try selector.selectBestFormats(from: info)
+        XCTAssertEqual(selected.video.formatId, "133")
+        XCTAssertEqual(selected.audio.formatId, "140")
+    }
+
     func testSelectHighestAudioBitrateForOriginalLanguage() throws {
         let videoFormats = [
             VideoFormat(formatId: "v1", ext: "webm", width: 1920, height: 1080, fps: 30, vcodec: "vp9", acodec: "none", vbr: 3000)

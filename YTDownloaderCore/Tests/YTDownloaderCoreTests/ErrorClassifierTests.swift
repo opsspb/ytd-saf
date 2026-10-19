@@ -11,11 +11,36 @@ final class ErrorClassifierTests: XCTestCase {
     
     func testClassifyCookiesRequired() {
         let error1 = classifier.classifyError(from: "ERROR: Sign in to confirm your age")
-        XCTAssertEqual(error1, .cookiesRequired)
+        if case .cookiesRequired(let detail) = error1 {
+            XCTAssertTrue(detail.contains("Sign in to confirm your age"))
+        } else {
+            XCTFail("Expected cookiesRequired, got \(error1)")
+        }
         XCTAssertTrue(error1.requiresCookies)
         
         let error2 = classifier.classifyError(from: "ERROR: This video requires login")
-        XCTAssertEqual(error2, .cookiesRequired)
+        if case .cookiesRequired = error2 {
+        } else {
+            XCTFail("Expected cookiesRequired, got \(error2)")
+        }
+    }
+
+    func testCaptchaBeatsGenericSignIn() {
+        let error = classifier.classifyError(
+            from: "ERROR: [youtube] abc: Sign in to confirm you're not a bot"
+        )
+        XCTAssertEqual(error, .captchaRequired)
+        XCTAssertTrue(error.requiresCookies)
+    }
+
+    func testCookiesRequiredPreservesLastErrorLineInDescription() {
+        let stderr = "WARNING: x\nERROR: [youtube] vid: Please sign in\n"
+        let error = classifier.classifyError(from: stderr)
+        if case .cookiesRequired = error {
+            XCTAssertTrue(error.errorDescription?.contains("ERROR: [youtube] vid: Please sign in") == true)
+        } else {
+            XCTFail("Expected cookiesRequired, got \(error)")
+        }
     }
     
     func testClassifyAgeRestricted() {
@@ -89,6 +114,54 @@ final class ErrorClassifierTests: XCTestCase {
             XCTAssertTrue(msg.contains("Requested format is not available"))
         } else {
             XCTFail("Expected downloadFailed, got \(error)")
+        }
+    }
+
+    func testClassifyRussianAndVKErrors() {
+        if case .cookiesRequired = classifier.classifyError(from: "ERROR: [vk] Войдите, чтобы просмотреть видео") {
+        } else {
+            XCTFail("expected cookiesRequired for Russian sign-in")
+        }
+        if case .cookiesRequired = classifier.classifyError(from: "Video -1_2 is only available for registered users") {
+        } else {
+            XCTFail("expected cookiesRequired for registered users")
+        }
+        if case .cookiesRequired = classifier.classifyError(from: "Please log in or <a>sign up</a>") {
+        } else {
+            XCTFail("expected cookiesRequired for log in")
+        }
+        XCTAssertEqual(classifier.classifyError(from: "Видео ограничено по возрасту"), .ageRestricted)
+        XCTAssertEqual(classifier.classifyError(from: "ERROR: капча, подтвердите что вы не робот"), .captchaRequired)
+        XCTAssertEqual(classifier.classifyError(from: "HTTP Error 403: доступ запрещен"), .forbidden)
+        XCTAssertEqual(classifier.classifyError(from: "Access denied to video -1_2"), .forbidden)
+        XCTAssertEqual(classifier.classifyError(from: "The video is not available in your region."), .forbidden)
+        XCTAssertEqual(classifier.classifyError(from: "HTTP Error 418"), .tooManyRequests)
+        XCTAssertEqual(classifier.classifyError(from: "Слишком много запросов"), .tooManyRequests)
+
+        if case .networkError = classifier.classifyError(from: "Видео временно недоступно") {
+        } else {
+            XCTFail("expected networkError for временно недоступно")
+        }
+        if case .networkError = classifier.classifyError(from: "Ошибка соединения, таймаут") {
+        } else {
+            XCTFail("expected networkError for Russian connection text")
+        }
+        if case .networkError = classifier.classifyError(from: "URL has expired; re-extract") {
+        } else {
+            XCTFail("expected networkError for expired URL")
+        }
+
+        XCTAssertEqual(classifier.classifyError(from: "Нет подходящих форматов"), .noSuitableFormats)
+        if case .downloadFailed = classifier.classifyError(from: "Запрошенный формат недоступен") {
+        } else {
+            XCTFail("expected downloadFailed for Russian format-unavailable")
+        }
+
+        let deleted = classifier.classifyError(from: "This video is no longer available, because it has been deleted.")
+        if case .unknown = deleted {
+            XCTAssertFalse(deleted.isTransient)
+        } else {
+            XCTFail("deleted videos should not retry as transient, got \(deleted)")
         }
     }
 

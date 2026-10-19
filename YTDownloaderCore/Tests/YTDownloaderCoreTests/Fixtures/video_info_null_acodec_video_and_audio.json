@@ -1,0 +1,60 @@
+{
+  "id": "nullCodecs",
+  "title": "Null acodec video + null acodec audio",
+  "formats": [
+    {
+      "format_id": "sb0",
+      "ext": "mhtml",
+      "protocol": "mhtml",
+      "vcodec": "none",
+      "acodec": "none",
+      "format_note": "storyboard"
+    },
+    {
+      "format_id": "299",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "avc1.640028",
+      "acodec": null,
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "vbr": 4000,
+      "tbr": 4000,
+      "format_note": "1080p60",
+      "resolution": "1920x1080"
+    },
+    {
+      "format_id": "298",
+      "ext": "mp4",
+      "protocol": "https",
+      "vcodec": "avc1.4D401F",
+      "acodec": null,
+      "width": 1280,
+      "height": 720,
+      "fps": 60,
+      "vbr": 2000,
+      "tbr": 2000,
+      "format_note": "720p60",
+      "resolution": "1280x720"
+    },
+    {
+      "format_id": "233",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "none",
+      "acodec": null,
+      "resolution": "audio only",
+      "format_note": "Default, low"
+    },
+    {
+      "format_id": "234",
+      "ext": "mp4",
+      "protocol": "m3u8_native",
+      "vcodec": "none",
+      "acodec": null,
+      "resolution": "audio only",
+      "format_note": "Default, high"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ public enum BinarySource: String, Equatable, Sendable {
 
 public enum DownloadedFileKind: Equatable, Sendable {
     case zip
+    case xz
     case macho
     case html
     case unknown
@@ -16,6 +17,9 @@ public enum DownloadedFileKind: Equatable, Sendable {
         guard !data.isEmpty else { return .unknown }
         if data.starts(with: [0x50, 0x4B, 0x03, 0x04]) || data.starts(with: [0x50, 0x4B, 0x05, 0x06]) {
             return .zip
+        }
+        if data.starts(with: [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]) {
+            return .xz
         }
         let machoMagics: [[UInt8]] = [
             [0xCF, 0xFA, 0xED, 0xFE],
@@ -43,12 +47,14 @@ public struct BinaryPaths: Equatable, Sendable {
     public let ytdlp: String
     public let ffmpeg: String
     public let ffprobe: String
+    public let aria2c: String?
     public let source: BinarySource
 
-    public init(ytdlp: String, ffmpeg: String, ffprobe: String, source: BinarySource) {
+    public init(ytdlp: String, ffmpeg: String, ffprobe: String, source: BinarySource, aria2c: String? = nil) {
         self.ytdlp = ytdlp
         self.ffmpeg = ffmpeg
         self.ffprobe = ffprobe
+        self.aria2c = aria2c
         self.source = source
     }
 }
@@ -99,29 +105,81 @@ public struct BinaryBootstrap: Sendable {
         URL(string: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos")!
     }
 
+    /// Static aria2 1.37.0 macOS build (official GitHub releases ship Windows/Android only).
+    public static func aria2cURL(arch: String = cpuArchitecture()) -> URL {
+        let suffix = arch == "arm64" ? "macos-arm64" : "macos-x64"
+        return URL(string: "https://github.com/jingjingxyk/build-static-aria2/releases/download/v1.0.0/aria2c-1.37.0-\(suffix).tar.xz")!
+    }
+
     public func locateExisting() -> BinaryPaths? {
-        if let paths = locateInstalled() {
-            return paths
+        var candidates: [BinaryPaths] = []
+        if let installed = locateInstalled() {
+            candidates.append(installed)
         }
-        if preferHomebrew, let paths = locateHomebrew() {
-            return paths
+        if preferHomebrew, let brew = locateHomebrew() {
+            candidates.append(brew)
         }
-        return nil
+        return Self.preferNewestYTDLP(among: candidates)
+    }
+
+    /// Compare `yt-dlp --version` strings (e.g. `2026.08.19`) and keep the newest.
+    public static func preferNewestYTDLP(among candidates: [BinaryPaths]) -> BinaryPaths? {
+        guard !candidates.isEmpty else { return nil }
+        if candidates.count == 1 { return candidates[0] }
+        return candidates.max { a, b in
+            compareYTDLPVersions(version(of: a.ytdlp), version(of: b.ytdlp)) == .orderedAscending
+        }
+    }
+
+    public static func parseYTDLPVersion(_ raw: String) -> [Int] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let head = trimmed.split(whereSeparator: { $0.isWhitespace || $0 == "\n" }).first.map(String.init) ?? trimmed
+        return head.split(separator: ".").compactMap { Int($0) }
+    }
+
+    public static func compareYTDLPVersions(_ lhs: [Int], _ rhs: [Int]) -> ComparisonResult {
+        let count = max(lhs.count, rhs.count)
+        for i in 0..<count {
+            let l = i < lhs.count ? lhs[i] : 0
+            let r = i < rhs.count ? rhs[i] : 0
+            if l < r { return .orderedAscending }
+            if l > r { return .orderedDescending }
+        }
+        return .orderedSame
+    }
+
+    private static func version(of ytdlpPath: String) -> [Int] {
+        do {
+            let result = try ProcessRunner.run(
+                executable: ytdlpPath,
+                arguments: ["--version"],
+                timeout: 4
+            )
+            guard !result.timedOut, result.status == 0 else { return [] }
+            return parseYTDLPVersion(result.stdout.isEmpty ? result.stderr : result.stdout)
+        } catch {
+            return []
+        }
     }
 
     public func setup() async throws -> BinaryPaths {
         try FileManager.default.createDirectory(at: binariesDirectory, withIntermediateDirectories: true)
 
-        report("Checking installed binaries...", 0.1)
-        if let paths = locateInstalled() {
-            _ = quickVersionCheck(paths, timeout: 4)
-            report("Using installed binaries", 1.0)
-            return paths
-        }
-
-        report("Checking for Homebrew binaries...", 0.2)
-        if preferHomebrew, let paths = locateHomebrew(), quickVersionCheck(paths, timeout: 4) {
-            report("Using Homebrew binaries", 1.0)
+        report("Checking installed / Homebrew binaries...", 0.1)
+        if var paths = locateExisting(), quickVersionCheck(paths, timeout: 4) {
+            if paths.aria2c == nil {
+                report("Downloading aria2c...", 0.5)
+                if let aria2c = await installAria2cBestEffort() {
+                    paths = BinaryPaths(
+                        ytdlp: paths.ytdlp,
+                        ffmpeg: paths.ffmpeg,
+                        ffprobe: paths.ffprobe,
+                        source: paths.source,
+                        aria2c: aria2c
+                    )
+                }
+            }
+            report(paths.source == .homebrew ? "Using Homebrew binaries" : "Using installed binaries", 1.0)
             return paths
         }
 
@@ -134,8 +192,11 @@ public struct BinaryBootstrap: Sendable {
         report("Downloading ffprobe...", 0.8)
         let ffprobe = try await installFFmpegTool(named: "ffprobe")
 
+        report("Downloading aria2c...", 0.88)
+        let aria2c = await installAria2cBestEffort()
+
         report("Verifying binaries...", 0.95)
-        let paths = BinaryPaths(ytdlp: ytdlp, ffmpeg: ffmpeg, ffprobe: ffprobe, source: .downloaded)
+        let paths = BinaryPaths(ytdlp: ytdlp, ffmpeg: ffmpeg, ffprobe: ffprobe, source: .downloaded, aria2c: aria2c)
         guard quickVersionCheck(paths, timeout: 8) else {
             throw DownloadError.bootstrapFailed(
                 "Downloaded yt-dlp/ffmpeg/ffprobe could not be executed. Check Gatekeeper or try again."
@@ -154,7 +215,13 @@ public struct BinaryBootstrap: Sendable {
             if FileManager.default.isExecutableFile(atPath: ytdlp),
                FileManager.default.isExecutableFile(atPath: ffmpeg),
                FileManager.default.isExecutableFile(atPath: ffprobe) {
-                return BinaryPaths(ytdlp: ytdlp, ffmpeg: ffmpeg, ffprobe: ffprobe, source: .homebrew)
+                return BinaryPaths(
+                    ytdlp: ytdlp,
+                    ffmpeg: ffmpeg,
+                    ffprobe: ffprobe,
+                    source: .homebrew,
+                    aria2c: optionalExecutable("\(base)/aria2c")
+                )
             }
         }
         return nil
@@ -169,7 +236,13 @@ public struct BinaryBootstrap: Sendable {
               FileManager.default.isExecutableFile(atPath: ffprobe) else {
             return nil
         }
-        return BinaryPaths(ytdlp: ytdlp, ffmpeg: ffmpeg, ffprobe: ffprobe, source: .installed)
+        return BinaryPaths(
+            ytdlp: ytdlp,
+            ffmpeg: ffmpeg,
+            ffprobe: ffprobe,
+            source: .installed,
+            aria2c: optionalExecutable(binariesDirectory.appendingPathComponent("aria2c").path)
+        )
     }
 
     private func installYTDLP() async throws -> String {
@@ -258,10 +331,18 @@ public struct BinaryBootstrap: Sendable {
                 return found
             }
             throw DownloadError.bootstrapFailed("Zip did not contain \(tool)")
+        case .xz:
+            let extractDir = FileManager.default.temporaryDirectory.appendingPathComponent("ytd-untar-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
+            try untarXZ(downloaded, to: extractDir)
+            if let found = findFile(named: tool, under: extractDir) {
+                return found
+            }
+            throw DownloadError.bootstrapFailed("Archive did not contain \(tool)")
         case .html:
             throw DownloadError.bootstrapFailed("Download was an HTML error page")
         case .unknown:
-            throw DownloadError.bootstrapFailed("Downloaded \(tool) was not a zip or Mach-O binary")
+            throw DownloadError.bootstrapFailed("Downloaded \(tool) was not a zip, xz, or Mach-O binary")
         }
     }
 
@@ -275,6 +356,34 @@ public struct BinaryBootstrap: Sendable {
         clearQuarantine(at: destination.path)
     }
 
+    private func optionalExecutable(_ path: String) -> String? {
+        FileManager.default.isExecutableFile(atPath: path) ? path : nil
+    }
+
+    private func installAria2cBestEffort() async -> String? {
+        let destination = binariesDirectory.appendingPathComponent("aria2c")
+        if FileManager.default.isExecutableFile(atPath: destination.path),
+           runs(destination.path, arguments: ["-v"], timeout: 4) {
+            return destination.path
+        }
+        do {
+            let downloaded = try await downloadWithRetry(from: Self.aria2cURL(), label: "aria2c")
+            let executable = try materializeExecutable(from: downloaded, named: "aria2c")
+            try installExecutable(from: executable, to: destination)
+            if runs(destination.path, arguments: ["-v"], timeout: 4) {
+                return destination.path
+            }
+        } catch {
+            report("aria2c download skipped: \(error.localizedDescription)", 0.9)
+        }
+        for base in ["/opt/homebrew/bin", "/usr/local/bin"] {
+            if let path = optionalExecutable("\(base)/aria2c") {
+                return path
+            }
+        }
+        return nil
+    }
+
     private func unzip(_ zipURL: URL, to destinationURL: URL) throws {
         let result = try ProcessRunner.run(
             executable: "/usr/bin/unzip",
@@ -283,6 +392,17 @@ public struct BinaryBootstrap: Sendable {
         )
         guard !result.timedOut, result.status == 0 else {
             throw DownloadError.bootstrapFailed("Failed to unzip \(zipURL.lastPathComponent)")
+        }
+    }
+
+    private func untarXZ(_ archiveURL: URL, to destinationURL: URL) throws {
+        let result = try ProcessRunner.run(
+            executable: "/usr/bin/tar",
+            arguments: ["-xJf", archiveURL.path, "-C", destinationURL.path],
+            timeout: 60
+        )
+        guard !result.timedOut, result.status == 0 else {
+            throw DownloadError.bootstrapFailed("Failed to extract \(archiveURL.lastPathComponent)")
         }
     }
 

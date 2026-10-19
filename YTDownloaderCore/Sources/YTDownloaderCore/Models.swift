@@ -58,25 +58,129 @@ public struct VideoFormat: Codable, Equatable, Sendable {
         self.languagePreference = languagePreference
         self.protocolName = protocolName
     }
-    
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatId = try container.decode(String.self, forKey: .formatId)
+        ext = try container.decode(String.self, forKey: .ext)
+        resolution = try container.decodeIfPresent(String.self, forKey: .resolution)
+        width = try Self.decodeFlexibleInt(container, forKey: .width)
+        height = try Self.decodeFlexibleInt(container, forKey: .height)
+        fps = try Self.decodeFlexibleDouble(container, forKey: .fps)
+        vcodec = try container.decodeIfPresent(String.self, forKey: .vcodec)
+        acodec = try container.decodeIfPresent(String.self, forKey: .acodec)
+        vbr = try Self.decodeFlexibleDouble(container, forKey: .vbr)
+        abr = try Self.decodeFlexibleDouble(container, forKey: .abr)
+        tbr = try Self.decodeFlexibleDouble(container, forKey: .tbr)
+        filesize = try Self.decodeFlexibleInt(container, forKey: .filesize)
+        filesizeApprox = try Self.decodeFlexibleInt(container, forKey: .filesizeApprox)
+        formatNote = try container.decodeIfPresent(String.self, forKey: .formatNote)
+        language = try container.decodeIfPresent(String.self, forKey: .language)
+        languagePreference = try Self.decodeFlexibleInt(container, forKey: .languagePreference)
+        protocolName = try container.decodeIfPresent(String.self, forKey: .protocolName)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(formatId, forKey: .formatId)
+        try container.encode(ext, forKey: .ext)
+        try container.encodeIfPresent(resolution, forKey: .resolution)
+        try container.encodeIfPresent(width, forKey: .width)
+        try container.encodeIfPresent(height, forKey: .height)
+        try container.encodeIfPresent(fps, forKey: .fps)
+        try container.encodeIfPresent(vcodec, forKey: .vcodec)
+        try container.encodeIfPresent(acodec, forKey: .acodec)
+        try container.encodeIfPresent(vbr, forKey: .vbr)
+        try container.encodeIfPresent(abr, forKey: .abr)
+        try container.encodeIfPresent(tbr, forKey: .tbr)
+        try container.encodeIfPresent(filesize, forKey: .filesize)
+        try container.encodeIfPresent(filesizeApprox, forKey: .filesizeApprox)
+        try container.encodeIfPresent(formatNote, forKey: .formatNote)
+        try container.encodeIfPresent(language, forKey: .language)
+        try container.encodeIfPresent(languagePreference, forKey: .languagePreference)
+        try container.encodeIfPresent(protocolName, forKey: .protocolName)
+    }
+
+    /// yt-dlp sometimes emits ints as floats (or vice versa); accept both.
+    private static func decodeFlexibleInt(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> Int? {
+        if container.contains(key), try container.decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+            return Int(value.rounded())
+        }
+        return nil
+    }
+
+    private static func decodeFlexibleDouble(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> Double? {
+        if container.contains(key), try container.decodeNil(forKey: key) {
+            return nil
+        }
+        if let value = try? container.decodeIfPresent(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) {
+            return Double(value)
+        }
+        return nil
+    }
+
+    /// Missing `vcodec` is treated like yt-dlp's `"none"` (audio-only rows often omit it).
+    private var normalizedVcodec: String { vcodec ?? "none" }
+
+    /// True when resolution/note mark this as an audio-only stream (HLS 233/234 omit `acodec`).
+    public var isAudioOnlyByMeta: Bool {
+        let resolutionText = (resolution ?? "").lowercased()
+        if resolutionText == "audio only" || resolutionText.hasPrefix("audio") {
+            return true
+        }
+        let note = (formatNote ?? "").lowercased()
+        return note == "audio only" || note.hasPrefix("audio only")
+    }
+
+    /// Explicit `"none"` / empty means no audio. Missing/null `acodec` is *unknown* — not video-only.
+    /// Age-restricted / web_safari lists often omit `acodec` on rows that still carry audio.
     public var isVideoOnly: Bool {
-        guard let acodec = acodec else { return false }
-        return acodec == "none" || acodec.isEmpty
+        guard let a = acodec else { return false }
+        return a == "none" || a.isEmpty
     }
-    
+
     public var isAudioOnly: Bool {
-        guard let vcodec = vcodec else { return false }
-        return vcodec == "none" || vcodec.isEmpty
+        let v = normalizedVcodec
+        return v == "none" || v.isEmpty
     }
-    
+
     public var hasVideo: Bool {
-        guard let vcodec = vcodec else { return false }
-        return vcodec != "none" && !vcodec.isEmpty
+        let v = normalizedVcodec
+        return v != "none" && !v.isEmpty
     }
-    
+
+    /// Real audio codec string present (not `"none"`, empty, or missing).
+    public var hasExplicitAudioCodec: Bool {
+        guard let a = acodec else { return false }
+        return a != "none" && !a.isEmpty
+    }
+
     public var hasAudio: Bool {
-        guard let acodec = acodec else { return false }
-        return acodec != "none" && !acodec.isEmpty
+        if hasExplicitAudioCodec {
+            return true
+        }
+        // Age-restricted / web_safari HLS audio rows often have vcodec=none and null acodec.
+        return isAudioOnly && isAudioOnlyByMeta
+    }
+
+    /// Progressive / HLS muxed: both a video codec and an explicit audio codec.
+    public var isMuxed: Bool {
+        hasVideo && hasExplicitAudioCodec
     }
 }
 
@@ -112,6 +216,29 @@ public struct SelectedFormats: Equatable, Sendable {
         self.video = video
         self.audio = audio
     }
+
+    public var formatSummary: String {
+        let resolution: String?
+        if let resolutionText = video.resolution, !resolutionText.isEmpty {
+            resolution = resolutionText
+        } else if let width = video.width, let height = video.height {
+            resolution = "\(width)x\(height)"
+        } else {
+            resolution = nil
+        }
+        return ParsedFormatChoice(
+            extractor: "youtube",
+            id: "",
+            title: "",
+            formatId: "\(video.formatId)+\(audio.formatId)",
+            resolution: resolution,
+            fps: video.fps,
+            vcodec: video.vcodec,
+            acodec: audio.acodec,
+            vbr: video.vbr,
+            abr: audio.abr
+        ).summary
+    }
 }
 
 public enum DownloadStatus: String, Codable {
@@ -121,6 +248,7 @@ public enum DownloadStatus: String, Codable {
     case merging
     case completed
     case failed
+    case cancelled
 }
 
 public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
@@ -134,6 +262,11 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
     public var log: String?
     public var retryNote: String?
     public var outputPath: String?
+    public var stage: DownloadStage?
+    public var formatSummary: String?
+    public var speedText: String?
+    public var etaText: String?
+    public var sizeText: String?
     public var addedAt: Date
     public var completedAt: Date?
     
@@ -148,6 +281,11 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         log: String? = nil,
         retryNote: String? = nil,
         outputPath: String? = nil,
+        stage: DownloadStage? = nil,
+        formatSummary: String? = nil,
+        speedText: String? = nil,
+        etaText: String? = nil,
+        sizeText: String? = nil,
         addedAt: Date = Date(),
         completedAt: Date? = nil
     ) {
@@ -161,12 +299,18 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         self.log = log
         self.retryNote = retryNote
         self.outputPath = outputPath
+        self.stage = stage
+        self.formatSummary = formatSummary
+        self.speedText = speedText
+        self.etaText = etaText
+        self.sizeText = sizeText
         self.addedAt = addedAt
         self.completedAt = completedAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, videoId, url, title, status, progress, error, log, retryNote, outputPath, addedAt, completedAt
+        case id, videoId, url, title, status, progress, error, log, retryNote, outputPath
+        case stage, formatSummary, speedText, etaText, sizeText, addedAt, completedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -181,6 +325,11 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         log = try container.decodeIfPresent(String.self, forKey: .log)
         retryNote = try container.decodeIfPresent(String.self, forKey: .retryNote)
         outputPath = try container.decodeIfPresent(String.self, forKey: .outputPath)
+        stage = try container.decodeIfPresent(DownloadStage.self, forKey: .stage)
+        formatSummary = try container.decodeIfPresent(String.self, forKey: .formatSummary)
+        speedText = try container.decodeIfPresent(String.self, forKey: .speedText)
+        etaText = try container.decodeIfPresent(String.self, forKey: .etaText)
+        sizeText = try container.decodeIfPresent(String.self, forKey: .sizeText)
         addedAt = try container.decode(Date.self, forKey: .addedAt)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
     }
@@ -197,6 +346,11 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(log, forKey: .log)
         try container.encodeIfPresent(retryNote, forKey: .retryNote)
         try container.encodeIfPresent(outputPath, forKey: .outputPath)
+        try container.encodeIfPresent(stage, forKey: .stage)
+        try container.encodeIfPresent(formatSummary, forKey: .formatSummary)
+        try container.encodeIfPresent(speedText, forKey: .speedText)
+        try container.encodeIfPresent(etaText, forKey: .etaText)
+        try container.encodeIfPresent(sizeText, forKey: .sizeText)
         try container.encode(addedAt, forKey: .addedAt)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
     }
@@ -206,24 +360,100 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
         status == .failed && !(error ?? "").isEmpty
     }
 
+    public var displayTitle: String {
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return title
+        }
+        return AppSupport.fetchingTitle(for: url)
+    }
+
     public var listStatusText: String {
         switch status {
         case .queued:
-            return "Queued"
+            return stage == .fetching ? "Fetching info" : "Queued"
         case .retrying:
             return retryNote ?? "Retrying"
         case .downloading:
-            return String(format: "Downloading %.0f%%", progress * 100)
+            return liveTransferLine()
         case .merging:
-            return "Merging..."
+            return "Merging"
         case .completed:
-            return "Completed"
+            return "Done"
+        case .cancelled:
+            return "Cancelled"
         case .failed:
             if let error, !error.isEmpty {
                 return "Failed: \(DownloadError.shortDisplayLine(from: error))"
             }
             return "Failed"
         }
+    }
+
+    public var stageSteps: [String] {
+        let current = resolvedStage
+        let names: [(DownloadStage, String)] = [
+            (.fetching, "Fetching info"),
+            (.formatChosen, formatSummary.map { "Format chosen: \($0)" } ?? "Format chosen"),
+            (.downloadingVideo, "Downloading video"),
+            (.downloadingAudio, "Downloading audio"),
+            (.merging, "Merging"),
+            (.completed, "Done")
+        ]
+        if status == .failed {
+            return names.map(\.1) + ["Failed"]
+        }
+        if status == .cancelled {
+            return names.map(\.1) + ["Cancelled"]
+        }
+        if status == .retrying {
+            return names.map(\.1) + [retryNote ?? "Retrying"]
+        }
+        var seen = false
+        return names.map { stage, label in
+            if stage == current { seen = true }
+            if stage == current { return "→ \(label)" }
+            if !seen { return "✓ \(label)" }
+            return label
+        }
+    }
+
+    private var resolvedStage: DownloadStage {
+        if let stage { return stage }
+        switch status {
+        case .queued: return .fetching
+        case .downloading: return .downloadingVideo
+        case .merging: return .merging
+        case .completed: return .completed
+        case .failed: return .failed
+        case .retrying: return .retrying
+        case .cancelled: return .cancelled
+        }
+    }
+
+    private func liveTransferLine() -> String {
+        switch resolvedStage {
+        case .fetching:
+            return "Fetching info"
+        case .formatChosen:
+            if let formatSummary, !formatSummary.isEmpty {
+                return "Format chosen: \(formatSummary)"
+            }
+            return "Format chosen"
+        case .downloadingAudio:
+            return transferLine(prefix: "Downloading audio")
+        case .merging:
+            return "Merging"
+        default:
+            return transferLine(prefix: "Downloading video")
+        }
+    }
+
+    private func transferLine(prefix: String) -> String {
+        var parts = [String(format: "%@ %.0f%%", prefix, progress * 100)]
+        if let speedText, !speedText.isEmpty { parts.append(speedText) }
+        if let etaText, !etaText.isEmpty { parts.append("ETA \(etaText)") }
+        if let sizeText, !sizeText.isEmpty { parts.append(sizeText) }
+        return parts.joined(separator: " · ")
     }
 
     public static func retryStatusLine(delay: TimeInterval, attempt: Int, maxAttempts: Int) -> String {
@@ -260,18 +490,25 @@ public struct DownloadItem: Codable, Identifiable, Equatable, Hashable {
             }
             self.error = nil
             self.retryNote = nil
+            self.stage = .completed
             completedAt = Date()
         case .failed:
             if let error {
                 self.error = error
             }
             self.retryNote = nil
+            self.stage = .failed
             completedAt = Date()
         case .retrying:
             self.error = nil
             if let retryNote {
                 self.retryNote = retryNote
             }
+        case .cancelled:
+            self.error = nil
+            self.retryNote = nil
+            self.stage = .cancelled
+            completedAt = Date()
         case .queued, .downloading, .merging:
             if let retryNote {
                 self.retryNote = retryNote
@@ -322,14 +559,18 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     case noSuitableFormats
     case downloadFailed(String)
     case mergeFailed(String)
-    case cookiesRequired
+    /// Associated string is yt-dlp stderr (or last ERROR line) for queue details.
+    case cookiesRequired(String)
     case ageRestricted
     case membersOnly
     case captchaRequired
+    case fullDiskAccessRequired
     case forbidden
     case tooManyRequests
     case networkError(String)
     case bootstrapFailed(String)
+    case unsupportedMedia
+    case cancelled
     case unknown(String)
     
     public var shortMessage: String {
@@ -356,6 +597,8 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Members-only video (cookies required)"
         case .captchaRequired:
             return "CAPTCHA required (cookies needed)"
+        case .fullDiskAccessRequired:
+            return "Full Disk Access required for Safari cookies"
         case .forbidden:
             return "Access forbidden (403)"
         case .tooManyRequests:
@@ -364,6 +607,10 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Network error"
         case .bootstrapFailed:
             return "Could not install yt-dlp/ffmpeg"
+        case .unsupportedMedia:
+            return "This page is not supported (live, playlist, or embed)"
+        case .cancelled:
+            return "Cancelled"
         case .unknown:
             return "Download failed"
         }
@@ -372,9 +619,16 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .ytdlpNotFound, .ffmpegNotFound, .invalidURL, .noSuitableFormats,
-             .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired,
-             .forbidden, .tooManyRequests:
+             .ageRestricted, .membersOnly, .captchaRequired,
+             .fullDiskAccessRequired,
+             .forbidden, .tooManyRequests, .unsupportedMedia, .cancelled:
             return shortMessage
+        case .cookiesRequired(let detail):
+            if detail.isEmpty { return shortMessage }
+            if let line = YTDLPDiagnostics.lastErrorLine(in: detail) {
+                return "\(shortMessage)\n\(line)"
+            }
+            return "\(shortMessage)\n\(detail)"
         case .fetchInfoFailed(let msg):
             return "Failed to fetch video info: \(msg)"
         case .downloadFailed(let msg):
@@ -387,6 +641,19 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             return "Could not install yt-dlp/ffmpeg: \(msg)"
         case .unknown(let msg):
             return "Unknown error: \(msg)"
+        }
+    }
+
+    /// Raw yt-dlp stderr / detail when the error carried one.
+    public var technicalDetail: String? {
+        switch self {
+        case .cookiesRequired(let detail) where !detail.isEmpty:
+            return detail
+        case .fetchInfoFailed(let msg), .downloadFailed(let msg), .mergeFailed(let msg),
+             .networkError(let msg), .bootstrapFailed(let msg), .unknown(let msg):
+            return msg
+        default:
+            return nil
         }
     }
 
@@ -408,10 +675,12 @@ public enum DownloadError: Error, LocalizedError, Equatable {
             "Age-restricted video (cookies required)",
             "Members-only video (cookies required)",
             "CAPTCHA required (cookies needed)",
+            "Full Disk Access required for Safari cookies",
             "Access forbidden (403)",
             "Too many requests (429)",
             "Network error",
             "Could not install yt-dlp/ffmpeg",
+            "This page is not supported (live, playlist, or embed)",
             "Download failed",
         ]
         for prefix in known where firstLine.hasPrefix(prefix) || stored.hasPrefix(prefix) {
@@ -466,7 +735,8 @@ public enum DownloadError: Error, LocalizedError, Equatable {
     
     public var requiresCookies: Bool {
         switch self {
-        case .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired:
+        case .cookiesRequired, .ageRestricted, .membersOnly, .captchaRequired,
+             .fullDiskAccessRequired:
             return true
         default:
             return false
@@ -494,11 +764,32 @@ public struct DownloadSettings: Codable, Equatable {
     public var cookieMode: CookieMode
     public var cookieFilePath: String?
     public var maxConcurrentDownloads: Int
-    
-    public init(downloadDirectory: String = "~/Downloads", cookieMode: CookieMode = .none, cookieFilePath: String? = nil, maxConcurrentDownloads: Int = 1) {
+    public var showWindowOnDownloadStart: Bool
+    public var launchAtLogin: Bool
+
+    public init(
+        downloadDirectory: String = "~/Downloads",
+        cookieMode: CookieMode = .none,
+        cookieFilePath: String? = nil,
+        maxConcurrentDownloads: Int = 1,
+        showWindowOnDownloadStart: Bool = false,
+        launchAtLogin: Bool = false
+    ) {
         self.downloadDirectory = downloadDirectory
         self.cookieMode = cookieMode
         self.cookieFilePath = cookieFilePath
         self.maxConcurrentDownloads = maxConcurrentDownloads
+        self.showWindowOnDownloadStart = showWindowOnDownloadStart
+        self.launchAtLogin = launchAtLogin
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        downloadDirectory = try container.decodeIfPresent(String.self, forKey: .downloadDirectory) ?? "~/Downloads"
+        cookieMode = try container.decodeIfPresent(CookieMode.self, forKey: .cookieMode) ?? .none
+        cookieFilePath = try container.decodeIfPresent(String.self, forKey: .cookieFilePath)
+        maxConcurrentDownloads = try container.decodeIfPresent(Int.self, forKey: .maxConcurrentDownloads) ?? 1
+        showWindowOnDownloadStart = try container.decodeIfPresent(Bool.self, forKey: .showWindowOnDownloadStart) ?? false
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
     }
 }

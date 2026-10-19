@@ -1,10 +1,11 @@
 import Foundation
 import AppKit
+import YTDownloaderCore
 
 class NativeMessaging: ObservableObject {
     static let shared = NativeMessaging()
 
-    private var pending: [(videoId: String, url: String)] = []
+    private var pending: [(videoId: String, url: String, cookiesPayload: String?)] = []
     private var manager: DownloadManager?
 
     private init() {
@@ -22,14 +23,28 @@ class NativeMessaging: ObservableObject {
     }
 
     func handle(url: URL) {
-        guard url.scheme == "ytdownloader" else { return }
-        guard url.host == "download" || url.path == "/download" || url.path.isEmpty else { return }
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
-        let items = components.queryItems ?? []
-        let videoId = items.first(where: { $0.name == "videoId" })?.value
-        let videoURL = items.first(where: { $0.name == "url" })?.value
-        guard let videoId, let videoURL else { return }
-        enqueue(videoId: videoId, url: videoURL)
+        guard let command = AppURL.parse(url) else { return }
+        switch command {
+        case .showQueue:
+            Task { @MainActor in
+                AppWindowController.shared.showQueue(activate: true)
+            }
+        case .showSettings:
+            Task { @MainActor in
+                AppWindowController.shared.showSettings()
+            }
+        case .download(let videoId, let url, let cookies, let cookieRef):
+            let payload = resolveCookiesPayload(cookies: cookies, cookieRef: cookieRef)
+            enqueue(videoId: videoId, url: url, cookiesPayload: payload)
+        }
+    }
+
+    /// App Group `cookieRef` → raw Netscape for DownloadManager; else legacy URL base64url payload.
+    private func resolveCookiesPayload(cookies: String?, cookieRef: String?) -> String? {
+        SharedCookieStore.resolveNetscapePayload(
+            cookieRef: cookieRef,
+            cookiesURLPayload: cookies
+        )
     }
 
     @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, replyEvent: NSAppleEventDescriptor) {
@@ -40,13 +55,13 @@ class NativeMessaging: ObservableObject {
         handle(url: url)
     }
 
-    private func enqueue(videoId: String, url: String) {
+    private func enqueue(videoId: String, url: String, cookiesPayload: String?) {
         if let manager {
             Task { @MainActor in
-                manager.addDownload(videoId: videoId, url: url)
+                manager.addDownload(videoId: videoId, url: url, cookiesPayload: cookiesPayload)
             }
         } else {
-            pending.append((videoId, url))
+            pending.append((videoId, url, cookiesPayload))
         }
     }
 
@@ -56,7 +71,11 @@ class NativeMessaging: ObservableObject {
         pending.removeAll()
         Task { @MainActor in
             for item in items {
-                manager.addDownload(videoId: item.videoId, url: item.url)
+                manager.addDownload(
+                    videoId: item.videoId,
+                    url: item.url,
+                    cookiesPayload: item.cookiesPayload
+                )
             }
         }
     }
