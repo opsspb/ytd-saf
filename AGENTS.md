@@ -26,3 +26,6 @@ swift Scripts/run-content-tests.swift YTDownloader/YTDownloaderExtension/Resourc
 Expected: Failed: 0 on both (YouTube `content.test.html` and VK `vk.test.html`).
 
 If a task does not mention VK/YouTube buttons and a diff still touches the protected paths above, stop and leave those files unchanged.
+
+## Code signing (CRITICAL)
+Never build signed in the `agent` macOS account or any automated environment. Always build with `CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=` and never pass `-allowProvisioningUpdates`. A signed build there creates a new Apple Development certificate for the free Personal Team, which revokes Pavel's certificate and makes Safari drop the extension. Only Pavel's account produces signed builds.
