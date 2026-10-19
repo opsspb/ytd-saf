@@ -144,18 +144,59 @@ html[dark] .ytd-card-download-button:hover,
     transform: scale(0.96);
 }
 
-/* VK Video is a dark site and does not define YouTube CSS variables.
-   Do not depend on data-testid — sport/official cards omit those. */
+/* VK Video follows the macOS appearance and does not define YouTube CSS variables.
+   Do not depend on data-testid — sport/official cards omit those.
+   Light scheme: slightly darker tint; dark scheme: slightly lighter tint. */
 .ytd-vk.ytd-watch-download-button,
 #ytd-download-button.ytd-vk,
 .ytd-vk.ytd-card-download-button {
-    background: rgba(255, 255, 255, 0.16) !important;
-    color: #f1f1f1 !important;
-    border: 1px solid rgba(255, 255, 255, 0.22) !important;
+    background: rgba(0, 0, 0, 0.06) !important;
+    color: rgba(0, 0, 0, 0.65) !important;
+    border: 1px solid rgba(0, 0, 0, 0.25) !important;
 }
 
 .ytd-vk.ytd-watch-download-button:hover,
 #ytd-download-button.ytd-vk:hover,
 .ytd-vk.ytd-card-download-button:hover {
-    background: rgba(255, 255, 255, 0.26) !important;
+    background: rgba(0, 0, 0, 0.12) !important;
+    color: rgba(0, 0, 0, 0.85) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    .ytd-vk.ytd-watch-download-button,
+    #ytd-download-button.ytd-vk,
+    .ytd-vk.ytd-card-download-button {
+        background: rgba(255, 255, 255, 0.12) !important;
+        color: rgba(255, 255, 255, 0.75) !important;
+        border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    }
+
+    .ytd-vk.ytd-watch-download-button:hover,
+    #ytd-download-button.ytd-vk:hover,
+    .ytd-vk.ytd-card-download-button:hover {
+        background: rgba(255, 255, 255, 0.22) !important;
+        color: rgba(255, 255, 255, 0.95) !important;
+    }
+}
+
+/* YouTube: when YouTube's own theme attribute/variables are absent, fall back
+   to the system color scheme (light is the default above). */
+@media (prefers-color-scheme: dark) {
+    html:not([dark]) .ytd-card-download-button:not(.ytd-vk) {
+        background: var(--yt-spec-additive-background, rgba(255, 255, 255, 0.1));
+        color: var(--yt-spec-text-primary, rgba(255, 255, 255, 0.85));
+    }
+
+    html:not([dark]) .ytd-card-download-button:not(.ytd-vk):hover {
+        background: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.2));
+    }
+
+    html:not([dark]) #ytd-download-button.ytd-watch-download-button:not(.ytd-vk) {
+        background: var(--yt-spec-additive-background, rgba(255, 255, 255, 0.1)) !important;
+        color: var(--yt-spec-text-primary, #f1f1f1) !important;
+    }
+
+    html:not([dark]) #ytd-download-button.ytd-watch-download-button:not(.ytd-vk):hover {
+        background: var(--yt-spec-10-percent-layer, rgba(255, 255, 255, 0.2)) !important;
+    }
 }
